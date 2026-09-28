@@ -1,0 +1,13 @@
+{
+  "name": "upper-hand-edge",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Upper Hand Edge — live NY-open trading dashboard (indices, forex, metals, energy, crypto, S&P 500 scanner).",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node dev/server.mjs",
+    "dev:mock": "MOCK=1 node dev/server.mjs",
+    "test": "node --test dev/tests/*.test.mjs"
+  }
+}

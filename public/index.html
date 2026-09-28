@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UHE · NY Open Command</title>
+<meta name="description" content="Upper Hand Edge: live, 24/7 dashboard for trading the New York open across indices, forex, metals, energy, crypto and the S&P 500.">
+<meta name="theme-color" content="#04060C">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Sora:wght@300;400;500;600;700&family=Azeret+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="gridlines" aria-hidden="true"></div>
+
+<header class="hud">
+  <div class="hud-in">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00E5FF"/><stop offset="1" stop-color="#8A6CFF"/></linearGradient></defs><path d="M20 2 36 11v18L20 38 4 29V11z" fill="none" stroke="url(#lg)" stroke-width="2"/><path d="M12 14v8a8 8 0 0 0 16 0v-8" fill="none" stroke="url(#lg)" stroke-width="2.4" stroke-linecap="round"/><circle cx="20" cy="22" r="2.4" fill="#00E5FF"/></svg>
+      <div><b>UHE · NY OPEN</b><span>Upper Hand Edge command</span></div>
+    </div>
+    <div class="clocks"><span><small>LDN</small><b id="clkUK">--:--</b></span><span><small>NYC</small><b id="clkNY">--:--</b></span></div>
+    <span class="pill short nyo-pill" title="Within an hour of the New York open">NY open window</span>
+    <div class="spacer"></div>
+    <div id="status" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <span class="live" id="liveChip" role="status"><i></i><span>CONNECTING</span></span>
+  </div>
+  <nav class="jump" aria-label="Sections"><a href="#edges">Top edges</a><a href="#live-chart">Live chart</a><a href="#matrix-sec">Markets</a><a href="#stocks">S&amp;P 500</a><a href="#brief-sec">Brief</a><a href="#lab">Edge lab</a><a href="#flow">Positioning &amp; flow</a><a href="#calendar">Calendar</a><a href="#journal">Journal</a><a href="#model">Model</a></nav>
+</header>
+<div class="tape" id="tape" aria-label="Live prices from TradingView"></div>
+
+<main class="shell">
+  <section class="deck" aria-label="Command deck">
+    <div class="glass pad ring-card">
+      <div class="eyebrow" id="ringEyebrow">Countdown</div>
+      <div class="ring" id="ring"></div>
+      <div class="ring-sub" id="ringSub"></div>
+    </div>
+    <div class="glass pad regime" id="regime"><div class="eyebrow">Market regime</div><div class="empty">Loading…</div></div>
+    <div class="glass pad" id="nextEvents"><div class="eyebrow">Next on the calendar</div><div class="empty">Loading…</div></div>
+  </section>
+
+  <section class="glass pad timeline" aria-label="Session timeline">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div class="eyebrow">Today's sessions · UK time</div><div class="tl-legend"><span><i style="background:var(--violet)"></i>Asia</span><span><i style="background:var(--cyan)"></i>London</span><span><i style="background:var(--magenta)"></i>New York</span><span><i style="background:var(--short);transform:rotate(45deg)"></i>High-impact event</span><span><i style="background:var(--amber);transform:rotate(45deg)"></i>Medium</span></div></div>
+    <div class="tl-rail" id="tl"></div>
+  </section>
+
+  <section id="edges">
+    <div class="h-sec"><div><div class="eyebrow">Ranked by conviction · live</div><h2>Top edges for the New York open</h2><p id="edgesSub">The strongest setups where trend, the London session and positioning agree.</p></div></div>
+    <div class="edges" id="edgeCards"><div class="glass pad empty">Loading…</div></div>
+    <div class="glass pad snap" id="snap"><div id="snapHead"></div><div id="snapBody"></div></div>
+  </section>
+
+  <section id="live-chart">
+    <div class="h-sec"><div><div class="eyebrow">Streaming · TradingView</div><h2>Live chart</h2><p>Real-time CFD prices. Switch to the futures chart to see the exact contract the levels are built on.</p></div>
+      <div class="ctrls"><div class="tabs" role="group" aria-label="Chart feed" id="feedTabs"><button data-f="cfd" aria-pressed="true">CFD · real-time</button><button data-f="fut" aria-pressed="false">Futures · matches levels</button></div></div>
+    </div>
+    <div class="glass pad">
+      <div class="symchips" id="chartSyms" role="group" aria-label="Chart market"></div>
+      <div class="chart-head"><div><span class="sym" id="chartSym">—</span> <span class="sym-n" id="chartName"></span></div><div class="q" id="chartQuote"></div></div>
+      <div class="tvbox" id="tvMain"><div class="tvph">Chart loads when you scroll here…</div></div>
+    </div>
+  </section>
+
+  <section id="matrix-sec">
+    <div class="h-sec"><div><div class="eyebrow">Indices · forex · metals · energy · crypto · 24/7</div><h2>Markets</h2><p>Prices tick live. Tap any market for its NY-open playbook, key levels, a live chart and the stats behind the score.</p></div>
+      <div class="ctrls">
+        <div class="tabs" role="group" aria-label="Asset class" id="clsTabs"><button data-c="all" aria-pressed="true">All</button><button data-c="index" aria-pressed="false">Indices</button><button data-c="fx" aria-pressed="false">Forex</button><button data-c="cmd" aria-pressed="false">Metals &amp; energy</button><button data-c="crypto" aria-pressed="false">Crypto</button></div>
+        <label class="sr" for="sortSel">Sort markets</label>
+        <select class="sel" id="sortSel"><option value="conv">Sort: conviction</option><option value="score">Sort: most bullish</option><option value="bear">Sort: most bearish</option><option value="chg">Sort: today's move</option><option value="adr">Sort: range left today</option><option value="none">Sort: default order</option></select>
+      </div>
+    </div>
+    <div class="matrix" id="matrix"><div class="glass pad empty">Loading market data…</div></div>
+  </section>
+
+  <section id="stocks">
+    <div class="h-sec"><div><div class="eyebrow">NYSE · Nasdaq · all 500 members · refreshed every minute</div><h2>S&amp;P 500 scanner</h2><p id="spSub">Every stock in the index, scored for the open: trend, strength vs SPY, how it closed, the pre-market gap and volume. Tap any tile or row.</p></div>
+      <div class="ctrls"><div class="tabs" role="group" aria-label="Heat map" id="mapMetric"><button data-m="gap" aria-pressed="true" id="mmGap">Pre-market move</button><button data-m="chg" aria-pressed="false">Last session</button><button data-m="score" aria-pressed="false">Edge score</button><button data-m="tv" aria-pressed="false">TradingView live</button></div></div>
+    </div>
+    <div class="sp-top">
+      <div class="glass pad" id="breadth"><div class="eyebrow">Breadth</div><div class="empty">Loading…</div></div>
+      <div class="glass pad"><div class="treemap" id="tmap" role="img" aria-label="S&amp;P 500 heat map by sector, sized by market cap"></div><div class="tvbox" id="tvHeat" hidden></div><div class="tm-legend" id="tmLegend"></div></div>
+    </div>
+    <div class="sp-lists">
+      <div class="glass pad"><div class="eyebrow" id="playTitle">Stocks in play · biggest moves before the open</div><div id="spPlay" style="margin-top:8px"></div></div>
+      <div class="glass pad"><div class="eyebrow">Long setups · highest edge</div><div id="spLongs" style="margin-top:8px"></div></div>
+      <div class="glass pad"><div class="eyebrow">Short setups · lowest edge</div><div id="spShorts" style="margin-top:8px"></div></div>
+    </div>
+    <div class="sp-bottom">
+      <div class="glass pad" id="secBoard"><div class="eyebrow">Sectors</div><div class="empty">Loading…</div></div>
+      <div class="glass pad" id="spEarn"><div class="eyebrow">S&amp;P 500 earnings · next 7 days</div><div class="empty">Loading…</div></div>
+    </div>
+  </section>
+
+  <section id="brief-sec">
+    <div class="h-sec"><div><div class="eyebrow">Written from this page's live data</div><h2>NY open brief</h2></div>
+      <div class="ctrls"><div class="tabs brief-src" role="group" aria-label="Brief source" id="briefSrc" hidden><button data-b="ai" aria-pressed="true">Claude</button><button data-b="auto" aria-pressed="false">Auto</button></div></div>
+    </div>
+    <div class="glass pad brief">
+      <div><div class="brief-text clamped" id="briefText"><p class="muted">Building the brief…</p></div><div class="brief-meta" id="briefMeta"></div></div>
+      <div class="brief-side"><button class="btn ghost sm" id="briefMore" hidden>Show full brief</button></div>
+    </div>
+  </section>
+
+  <section id="lab">
+    <div class="h-sec"><div><div class="eyebrow">Last ~55 sessions · 15-minute bars</div><h2>Edge lab</h2><p>How each market has behaved in the first hour after the New York open. Cyan means NY tends to follow London, magenta means it tends to fade it. Tap a row for that market's playbook.</p></div></div>
+    <div class="glass tbl"><table class="heat" id="heat"><thead><tr>
+      <th>Market</th><th title="How often the first NY hour moved the same way as the London session">NY hour follows London</th><th title="Same, but only on days London moved more than 35% of the average daily range">…after a strong London</th><th title="How often the first NY hour closed higher than it opened">NY hour closes up</th><th title="How often the first NY hour traded above the London high">Takes London high</th><th title="How often the first NY hour traded below the London low">Takes London low</th><th title="How often the NY session traded through the prior day's high or low">Tags prior-day high/low</th><th title="Average first-hour range as a share of the average daily range">NY hour range</th>
+    </tr></thead><tbody id="heatBody"><tr><td colspan="8" class="empty">Loading…</td></tr></tbody></table></div>
+  </section>
+
+  <section id="flow">
+    <div class="h-sec"><div><div class="eyebrow">Public institutional data</div><h2>Positioning &amp; off-exchange flow</h2><p>Where speculators sit in the futures market (CFTC, weekly), and how dark-pool and internaliser volume is leaning in the big ETFs (FINRA, daily).</p></div></div>
+    <div class="flow">
+      <div class="glass pad"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline"><div class="eyebrow">Speculator positioning · 3-year range</div><span class="muted" style="font-size:11.5px" id="cotDate"></span></div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:12px 0 4px;padding-left:132px;padding-right:128px"><span>Most short</span><span>Most long</span></div>
+        <div id="cot"><div class="empty">Loading…</div></div>
+        <p class="note">Amber markers are extremes (top or bottom 15%). Crowded trades tend to unwind, so the score reads extremes as a contrarian tilt.</p></div>
+      <div class="glass pad"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:baseline"><div class="eyebrow">Off-exchange short share · 21 sessions</div><span class="muted" style="font-size:11.5px" id="finDate"></span></div>
+        <div id="finra" style="margin-top:10px"><div class="empty">Loading…</div></div>
+        <p class="note">Share of off-exchange volume marked short. Dealers short to fill client buying, so an unusually high reading (z above +1) has been read as accumulation — the idea behind SqueezeMetrics' DIX. Treat it as a tilt, not a trigger.</p></div>
+    </div>
+  </section>
+
+  <section id="calendar">
+    <div class="h-sec"><div><div class="eyebrow">High and medium impact · UK time</div><h2>This week</h2><p id="calSub">Data releases and central-bank speakers that move the open.</p></div></div>
+    <div class="cal" id="cal"><div class="glass pad empty">Loading…</div></div>
+  </section>
+
+  <section id="journal">
+    <div class="h-sec"><div><div class="eyebrow">Measured in R · saved in this browser</div><h2>Trade journal</h2><p>Log every NY-open trade. Win rate, expectancy and drawdown build from here, so the edge is measured, not remembered. Export a backup to move it to another device.</p></div></div>
+    <div class="stats" id="jstats"></div>
+    <div class="jgrid">
+      <div class="glass"><div class="pad" style="padding-bottom:6px"><div class="eyebrow">Equity curve · cumulative R</div></div><div class="pad eq" id="eq" style="padding-top:0"></div>
+        <div class="tbl" style="border-radius:0 0 var(--r) var(--r)"><table class="t"><thead><tr><th>Date</th><th>Market</th><th>Side</th><th>Setup</th><th>Entry</th><th>Stop</th><th>Exit</th><th>Size</th><th>R</th><th>P&amp;L</th><th></th></tr></thead><tbody id="jBody"></tbody></table></div></div>
+      <div>
+        <form class="glass pad form" id="jForm" novalidate>
+          <div class="eyebrow full">Log a trade</div>
+          <label>Date<input class="inp" type="date" id="jDate" required></label>
+          <label>Market<input class="inp" id="jSym" list="symList" placeholder="US30, GBPUSD, NVDA…" autocomplete="off" required></label>
+          <datalist id="symList"></datalist>
+          <label>Side<select class="inp" id="jSide"><option>Long</option><option>Short</option></select></label>
+          <label>Setup<select class="inp" id="jSetup"><option>London high/low break</option><option>Opening range break</option><option>Prior-day high/low sweep</option><option>Fade into level</option><option>News spike fade</option><option>Trend pullback</option><option>Other</option></select></label>
+          <label>Entry<input class="inp" id="jEntry" inputmode="decimal" required></label>
+          <label>Stop<input class="inp" id="jStop" inputmode="decimal" required></label>
+          <label>Exit<input class="inp" id="jExit" inputmode="decimal" placeholder="Empty if open"></label>
+          <label>Size (units / £ per pt)<input class="inp" id="jQty" inputmode="decimal" required></label>
+          <label class="full">Notes<input class="inp" id="jNotes" placeholder="What you saw, what you did"></label>
+          <div class="form-msg" id="jMsg"></div>
+          <button class="btn prime full" type="submit" id="jSave">Save trade</button>
+        </form>
+        <div class="jtools"><button class="btn sm ghost" id="jExport">Export backup</button><button class="btn sm ghost" id="jImportBtn">Import backup</button><input type="file" id="jImport" accept="application/json,.json" hidden></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="model">
+    <div class="h-sec"><div><div class="eyebrow">Transparent by design</div><h2>Model</h2><p>Every market gets an edge score from 0 to 100. 50 is neutral. Adjust the weights and the page re-ranks instantly.</p></div></div>
+    <div class="model">
+      <div class="glass pad"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px"><div class="eyebrow">Weights</div><div style="display:flex;gap:8px"><button class="btn sm ghost" id="wReset">Defaults</button><button class="btn sm prime" id="wSave" disabled>Save model</button></div></div>
+        <div id="weights"></div>
+        <div class="wrow"><label for="thLong">Long at or above</label><input type="range" id="thLong" min="51" max="80" step="1"><b id="thLongV"></b></div>
+        <div class="wrow"><label for="thShort">Short at or below</label><input type="range" id="thShort" min="20" max="49" step="1"><b id="thShortV"></b></div>
+        <p class="note">Saved in this browser. The Claude brief always uses the default weights.</p>
+      </div>
+      <div class="glass pad explain"><div class="eyebrow" style="margin-bottom:10px">What each factor measures</div><dl>
+        <dt>Trend</dt><dd>Price vs its 20-day average in ATRs, and whether the 20-day sits above the 50-day.</dd>
+        <dt>Momentum</dt><dd>Daily RSI(14), centred on 50.</dd>
+        <dt>London drive</dt><dd>Today's London move, scaled by the average daily range, multiplied by how often NY has followed (or faded) London in this market.</dd>
+        <dt>Structure</dt><dd>Where price sits inside yesterday's range. Above the high scores +1, below the low −1.</dd>
+        <dt>Macro</dt><dd>Dollar index for USD pairs and metals, VIX for indices and crypto.</dd>
+        <dt>Positioning</dt><dd>CFTC speculator positioning at 3-year extremes, read as a contrarian tilt.</dd>
+        <dt>Off-exchange</dt><dd>FINRA short-share z-score in the matching ETF (SPY, QQQ, DIA, IWM, GLD).</dd>
+      </dl><p class="note">The score ranks setups. It does not predict price and it is not investment advice.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <span>Live quotes, sessions and the S&amp;P 500 scan: Yahoo Finance. CME futures and European indices are delayed on free feeds; while US ETFs trade (09:00–01:00 UK), US index, gold, silver and oil prices are estimated in real time from SPY, QQQ, DIA, IWM, GLD, SLV and USO.</span>
+    <span>Streaming charts, ticker tape and live heat map: TradingView.</span><span>Positioning: CFTC Commitments of Traders.</span><span>Off-exchange: FINRA Reg SHO daily volume.</span><span>Calendar: Forex Factory.</span>
+    <span>Levels for US indices, gold, silver and oil are on the front-month futures; a CFD can sit a few points away.</span><span>Not investment advice.</span>
+  </footer>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="glass drawer" id="drawer" hidden aria-modal="true" role="dialog" aria-labelledby="drSym">
+  <button class="x" id="drClose" aria-label="Close">×</button>
+  <div id="drHead"></div>
+  <div class="dsec" id="drChartSec"><div class="dr-tabs tabs" role="group" aria-label="Drawer chart feed" id="drFeed"></div><div class="tvbox sm" id="drChart"></div></div>
+  <div id="drBody"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
