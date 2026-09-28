@@ -4,7 +4,7 @@
   "private": true,
   "description": "Upper Hand Edge — live NY-open trading dashboard (indices, forex, metals, energy, crypto, S&P 500 scanner).",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": { "node": "22.x" },
   "scripts": {
     "dev": "node dev/server.mjs",
     "dev:mock": "MOCK=1 node dev/server.mjs",
