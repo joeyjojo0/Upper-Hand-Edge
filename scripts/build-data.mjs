@@ -17,7 +17,7 @@ async function job(n, fn) {
   if (!due(n, prev)) { log.push(`${n}: fresh (${prev.asOf})`); return prev; }
   const t = Date.now();
   try {
-    const v = await fn(prev);
+    const v = await fn();
     await writeFile(`${OUT}/${n}.json`, JSON.stringify(v));
     log.push(`${n}: ok in ${((Date.now() - t) / 1000).toFixed(1)}s`);
     return v;

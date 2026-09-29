@@ -3,7 +3,9 @@
 // CFTC Commitments of Traders (Socrata API) and the Forex Factory weekly calendar export.
 
 export const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
-const HOSTS = ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
+const PROXY_BASE = process.env.YAHOO_PROXY || "";
+// With YAHOO_PROXY set (GitHub data engine), every Yahoo call goes through the curl_cffi relay.
+const HOSTS = PROXY_BASE ? [PROXY_BASE] : ["https://query1.finance.yahoo.com", "https://query2.finance.yahoo.com"];
 
 /* ------------------------------------------------------------------ instruments */
 // [id, yahoo symbol, name, class, decimals]
@@ -175,6 +177,7 @@ export async function markets() {
 /* ------------------------------------------------------------------ live quotes */
 let CRUMB = null;
 export async function crumb(force = false) {
+  if (PROXY_BASE) return { cookie: "", crumb: "relay", at: Date.now() };
   if (!force && CRUMB && Date.now() - CRUMB.at < 25 * 60e3) return CRUMB;
   const r1 = await fetch("https://fc.yahoo.com/", { headers: { "User-Agent": UA }, redirect: "manual" });
   const sc = typeof r1.headers.getSetCookie === "function" ? r1.headers.getSetCookie() : [r1.headers.get("set-cookie")];
@@ -351,7 +354,7 @@ export async function scanHist() {
     // drop today's bar while the regular session is still running
     if (b.length && td && et(b[b.length - 1].t).d === now.d && now.m < 960) b.pop();
     return b;
-  }, 24);
+  }, PROXY_BASE ? 8 : 24);
   const spy = hist[0] && !hist[0].__err ? hist[0] : [];
   const sc = spy.map(x => x.c), sn = sc.length;
   const spy5 = sn > 6 ? (sc[sn - 1] / sc[sn - 6] - 1) * 100 : 0, spy20 = sn > 21 ? (sc[sn - 1] / sc[sn - 21] - 1) * 100 : 0;

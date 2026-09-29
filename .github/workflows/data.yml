@@ -22,11 +22,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Start Yahoo relay
+        run: |
+          pip install -q curl_cffi
+          nohup python3 scripts/yahoo-proxy.py 8765 > relay.log 2>&1 &
+          sleep 3
       - name: Fetch previous snapshots
         run: |
           git fetch origin data:data 2>/dev/null && git worktree add out data || (git worktree add --orphan -b data out 2>/dev/null || (mkdir -p out && cd out && git init -b data))
       - name: Build data
         env:
+          YAHOO_PROXY: http://127.0.0.1:8765
+          FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
           FORCE: ${{ github.event.inputs.force }}
         run: node scripts/build-data.mjs out
       - name: Publish to data branch
