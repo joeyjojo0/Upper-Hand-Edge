@@ -87,8 +87,8 @@ export function applyLive(mk, q, bs, now = Date.now()) {
     if (src === "quote" && t && barT && t < barT) continue; // session bars are newer than the quote
     const dp = x.dp || 0;
     px = rnd(px, dp + 1);
-    const fresh = t ? nowS - t < (delay * 60 + 20 * 60) : false;
-    live[x.id] = { src, t, delay, fresh, etf: src === "etf" ? etfSym : null };
+    const fresh = t ? nowS - t < (delay * 60 + 35 * 60) : false;
+    live[x.id] = { src, t, delay, fresh, age: t ? nowS - t : null, etf: src === "etf" ? etfSym : null };
     x.px = px;
     x.chg = x.pd && isNum(x.pd.c) && x.pd.c ? rnd((px / x.pd.c - 1) * 100, 2) : (qq && isNum(qq.chgd) ? qq.chgd : x.chg);
     const sp = nums(x.spark); if (sp.length) { sp[sp.length - 1] = px; x.spark = sp.join(" "); }

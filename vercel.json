@@ -2,14 +2,38 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "outputDirectory": "public",
-  "regions": ["lhr1"],
+  "regions": [
+    "lhr1"
+  ],
   "functions": {
-    "api/*.js": { "maxDuration": 60 }
+    "api/*.js": {
+      "maxDuration": 60
+    }
   },
   "headers": [
-    { "source": "/(.*)", "headers": [
-      { "key": "X-Content-Type-Options", "value": "nosniff" },
-      { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
-    ] }
-  ]
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/data/:path*",
+      "destination": "https://raw.githubusercontent.com/joeyjojo0/Upper-Hand-Edge/data/:path*"
+    }
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "data": false
+    }
+  }
 }

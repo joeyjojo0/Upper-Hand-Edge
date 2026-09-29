@@ -30,13 +30,14 @@ const S = {
   briefMode: "ai", autoCache: null, snap: store.get("uhe.snap", null), notify: store.get("uhe.notify", false), snapBusy: false, lastFocus: null
 };
 if (!Array.isArray(S.journal)) S.journal = [];
+// Snapshots come from the GitHub data engine (/data/*, refreshed ~every 10 min); quotes add real-time ETF and crypto prices.
 const FEEDS = {
-  quotes: { url: "/api/quotes", every: 5e3, hidden: 30e3 },
-  basis: { url: "/api/basis", every: 60e3 },
-  markets: { url: "/api/markets", every: 120e3 },
-  scan: { url: "/api/scan", every: 60e3, hidden: 180e3 },
-  calendar: { url: "/api/calendar", every: 15 * 60e3 },
-  flow: { url: "/api/flow", every: 3 * 3600e3 },
+  quotes: { url: "/api/quotes", every: 10e3, hidden: 60e3 },
+  basis: { url: "/data/basis.json", every: 120e3 },
+  markets: { url: "/data/markets.json", every: 120e3 },
+  scan: { url: "/data/scan.json", every: 120e3, hidden: 300e3 },
+  calendar: { url: "/data/calendar.json", every: 15 * 60e3 },
+  flow: { url: "/data/flow.json", every: 3 * 3600e3 },
   brief: { url: "/api/brief", every: 10 * 60e3 }
 };
 async function load(k) {
@@ -178,6 +179,7 @@ function srcTag(id) {
   if (!l) return `<span class="src cl" title="Waiting for a live quote; showing 15-minute session data">Session</span>`;
   if (!l.fresh) return `<span class="src cl" title="No trades in the last 20 minutes">Closed</span>`;
   if (l.src === "etf") return `<span class="src rt" title="Real-time estimate: ${esc(l.etf)} price × the ${esc(FUT_NAME[id] || "")} futures/${esc(l.etf)} ratio">Live · ${esc(l.etf)}</span>`;
+  if (l.age > 150 + (l.delay || 0) * 60) return `<span class="src dl" title="Last price from the data engine snapshot; the ticker tape and charts stream live">${Math.round(l.age / 60)}m ago</span>`;
   if (l.delay) return `<span class="src dl" title="This exchange feed is delayed ${l.delay} minutes on free data. The ticker tape and chart stream in real time.">${l.delay}m delay</span>`;
   return `<span class="src rt">Live</span>`;
 }

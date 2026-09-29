@@ -17,8 +17,8 @@ export default async function handler(req, res) {
   try {
     const base = origin(req);
     const [mk, q, bs, fl, cal, sc] = await Promise.all([
-      get(base, "/api/markets", 30000), get(base, "/api/quotes", 10000), get(base, "/api/basis", 10000),
-      get(base, "/api/flow", 20000), get(base, "/api/calendar", 10000), get(base, "/api/scan", 12000)
+      get(base, "/data/markets.json", 15000), get(base, "/api/quotes", 10000), get(base, "/data/basis.json", 10000),
+      get(base, "/data/flow.json", 10000), get(base, "/data/calendar.json", 10000), get(base, "/data/scan.json", 10000)
     ]);
     if (!mk) throw new Error("market data unavailable");
     const live = applyLive(mk, q, bs);

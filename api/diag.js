@@ -1,3 +1,4 @@
+// Connectivity diagnostics: what each data source returns to this deployment. Keys are never printed.
 const F = process.env.FINNHUB_KEY || "", TD = process.env.TWELVEDATA_KEY || "";
 const now = Math.floor(Date.now() / 1000), wk = now - 7 * 86400;
 const T = [

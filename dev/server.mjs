@@ -28,6 +28,12 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   try {
     if (url.pathname.startsWith("/api/")) return await api(url.pathname.slice(5).replace(/\/$/, ""), req, res);
+    if (url.pathname.startsWith("/data/")) {
+      const name = url.pathname.slice(6).replace(/\.json$/, "");
+      if (mock) return await api(name, req, res);
+      const r = await fetch("https://raw.githubusercontent.com/joeyjojo0/Upper-Hand-Edge/data/" + name + ".json");
+      res.statusCode = r.status; res.setHeader("Content-Type", "application/json"); return res.end(await r.text());
+    }
     let p = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
     if (p.endsWith("/")) p += "index.html";
     const file = join(ROOT, "public", p);
