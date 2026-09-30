@@ -428,7 +428,7 @@ body.nyo-window .ring-card{border-color:rgba(255,61,203,.45);box-shadow:0 0 60px
 .aio:hover{transform:translateY(-1px);box-shadow:0 0 26px -6px rgba(138,108,255,.8)}
 .aio-by{font:600 9px var(--f-ui);letter-spacing:.24em;text-transform:uppercase;color:var(--ink-3)}
 .aio-mark{display:inline-flex;align-items:center;gap:6px}
-.aio-mark img{height:16px;width:auto;display:block;filter:drop-shadow(0 0 6px rgba(0,229,255,.55))}
+.aio-mark img{height:18px;width:auto;display:block;filter:drop-shadow(0 0 6px rgba(0,229,255,.55))}
 .aio-mark img+b{display:none}
 .aio-mark b{font:800 13px var(--f-disp);letter-spacing:.14em;background:linear-gradient(90deg,#fff 0%,#9FEFFF 25%,#B9A8FF 50%,#FF9BE6 70%,#fff 100%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent}
 @property --aio-a{syntax:"<angle>";inherits:false;initial-value:0deg}
