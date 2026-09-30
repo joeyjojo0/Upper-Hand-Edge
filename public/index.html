@@ -26,9 +26,15 @@
     <span class="pill short nyo-pill" title="Within an hour of the New York open">NY open window</span>
     <div class="spacer"></div>
     <div id="status" style="display:flex;gap:6px;flex-wrap:wrap"></div>
-    <span class="live" id="liveChip" role="status"><i></i><span>CONNECTING</span></span>
+    <div class="live-stack">
+      <span class="live" id="liveChip" role="status"><i></i><span>CONNECTING</span></span>
+      <a class="aio" href="https://aione.london" target="_blank" rel="noopener" aria-label="Created by AIO, aione.london">
+        <span class="aio-by">Created by</span>
+        <span class="aio-mark"><img src="/aio-logo.png" alt="AIO" onerror="this.remove()"><b>AIO</b></span>
+      </a>
+    </div>
   </div>
-  <nav class="jump" aria-label="Sections"><a href="#edges">Top edges</a><a href="#live-chart">Live chart</a><a href="#matrix-sec">Markets</a><a href="#stocks">S&amp;P 500</a><a href="#brief-sec">Brief</a><a href="#lab">Edge lab</a><a href="#flow">Positioning &amp; flow</a><a href="#calendar">Calendar</a><a href="#journal">Journal</a><a href="#model">Model</a></nav>
+  <nav class="jump" aria-label="Sections"><a href="#edges">Top edges</a><a href="#live-chart">Live chart</a><a href="#matrix-sec">Markets</a><a href="#stocks">S&amp;P 500</a><a href="#brief-sec">Brief</a><a href="#lab">Edge lab</a><a href="#flow">Positioning &amp; flow</a><a href="#calendar">Calendar</a><a href="#journal">Journal</a><a href="#model">Model</a><a class="nav-earth" href="/earth">Earth View</a></nav>
 </header>
 <div class="tape" id="tape" aria-label="Live prices from TradingView"></div>
 

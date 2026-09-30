@@ -36,7 +36,8 @@ http.createServer(async (req, res) => {
     }
     let p = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
     if (p.endsWith("/")) p += "index.html";
-    const file = join(ROOT, "public", p);
+    let file = join(ROOT, "public", p);
+    if (!extname(file)) file += ".html";
     const buf = await readFile(file);
     res.setHeader("Content-Type", TYPES[extname(file)] || "application/octet-stream");
     res.end(buf);

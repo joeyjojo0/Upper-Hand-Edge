@@ -91,3 +91,14 @@ dev/               local server, mock API, fixtures, tests
 - Yahoo's endpoints are unofficial and can rate-limit or change. The quote path falls back from the batch quote API to per-symbol chart metadata; if Yahoo blocks the deployment's IPs for long, a keyed provider can be swapped into `api/_lib/core.js`.
 - The journal, model weights and snapshots live in your browser's local storage. Use **Export backup** to move them to another device.
 - The score ranks setups. It does not predict price and it is not investment advice.
+
+## Earth View
+
+`/earth` embeds [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view) (MIT, by Bilawal Sidhu) inside the UHE shell. It needs its own Node server for its live-data proxies, so it runs as a separate free Render service:
+
+1. Fork `bilawalsidhu/gods-eye-view`. In `build/vite.js`, replace the two header lines under `headers: {` with
+   ``'Content-Security-Policy': `frame-ancestors 'self' ${process.env.GEV_FRAME_ANCESTORS || ''}`.trim(),``
+2. Render → New Web Service → the fork. Build `npm ci && npm run build`, start `npx vite preview --host 0.0.0.0 --port $PORT`, env `HOST=0.0.0.0`, `PUPPETEER_SKIP_DOWNLOAD=true`, `GEV_FRAME_ANCESTORS=https://upper-hand-edge.vercel.app`.
+3. In Vercel set `EARTH_VIEW_URL` to the Render URL and redeploy.
+
+Free Render services sleep when idle; the page shows a loader while it wakes (up to a minute).

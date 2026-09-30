@@ -35,5 +35,6 @@
     "deploymentEnabled": {
       "data": false
     }
-  }
+  },
+  "cleanUrls": true
 }
