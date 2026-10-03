@@ -90,6 +90,14 @@
       <div class="glass pad" id="breadth"><div class="eyebrow">Breadth</div><div class="empty">Loading…</div></div>
       <div class="glass pad"><div class="treemap" id="tmap" role="img" aria-label="S&amp;P 500 heat map by sector, sized by market cap"></div><div class="tvbox" id="tvHeat" hidden></div><div class="tm-legend" id="tmLegend"></div></div>
     </div>
+    <div class="glass pad watch" id="watch">
+      <div class="watch-head">
+        <div><div class="eyebrow">Pre-open deep dive · your ticked stocks</div><h3 class="watch-title">Watchlist radar</h3>
+          <p class="note" style="margin-top:4px">Tick ✓ any stock (rows below, or in its drawer). Ten minutes before the open the radar re-checks volume, options interest, RSI and stochastic and tells you which ones line up.</p></div>
+        <form class="watch-add" id="watchAdd" autocomplete="off"><input class="inp" id="watchSym" list="spSyms" placeholder="Add ticker, e.g. NVDA" aria-label="Add ticker"><datalist id="spSyms"></datalist><button class="btn sm" type="submit">Add</button><button class="btn sm prime" type="button" id="watchRun">Deep dive now</button></form>
+      </div>
+      <div id="watchBody"></div>
+    </div>
     <div class="sp-lists">
       <div class="glass pad"><div class="eyebrow" id="playTitle">Stocks in play · biggest moves before the open</div><div id="spPlay" style="margin-top:8px"></div></div>
       <div class="glass pad"><div class="eyebrow">Long setups · highest edge</div><div id="spLongs" style="margin-top:8px"></div></div>

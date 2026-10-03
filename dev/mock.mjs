@@ -59,6 +59,10 @@ export async function handle(name) {
     case "flow": return { asOf: new Date().toISOString(), finra: fin, cot };
     case "calendar": return cal;
     case "brief": return { ai: false, reason: "mock" };
+    case "deep": { const sc = scanLive(); const st = {}; for (const line of sc.map) { const [sym, sec, mcap, chg, gap, score, rsi, atrPct, rvol] = line.split("|"); const d = [].concat(scan.play, scan.longs, scan.shorts).find(r => r.s === sym) || {}; const px = d.px || 50 + rnd() * 400, k = 20 + rnd() * 70;
+      st[sym] = { px, chg: +chg, gap: gap === "" ? null : +gap, rsi: +rsi || 50, rsiP: (+rsi || 50) - 3 + rnd() * 6, stK: k, stD: k - 8 + rnd() * 16, stKp: k - 6 + rnd() * 12, rvol: +rvol || 1, sma20: px * (0.97 + rnd() * 0.06), sma50: px * (0.94 + rnd() * 0.1), atrPct: +atrPct || 2, pdh: px * 1.01, pdl: px * 0.99, pdc: px, name: d.name || sym, sec: +sec, mcap: +mcap }; }
+      return { asOf: new Date().toISOString(), stocks: st }; }
+    case "options": { const ch = {}; for (const line of scanLive().map) { const sym = line.split("|")[0]; const cv = Math.round(1000 + rnd() * 50000), pv = Math.round(cv * (0.3 + rnd() * 1.5)); ch[sym] = { cv, pv, coi: cv * 4, poi: pv * 4, pcr: +(pv / cv).toFixed(2), cvOi: +(cv / (cv * 4)).toFixed(2), iv: 30, topCall: { k: 100, v: Math.round(cv / 5) } }; } return { asOf: new Date().toISOString(), chains: ch }; }
     case "health": return { ok: true, mode: "mock" };
     default: return null;
   }

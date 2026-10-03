@@ -346,6 +346,17 @@ export async function sp500List() {
 }
 
 // Daily-bar metrics for every member (slow: ~500 requests). Cache this for an hour at the edge.
+// Stochastic (14,3,3 slow), its previous value, and MACD (12,26,9) histogram from daily bars.
+function osc(b) {
+  const n = b.length; if (n < 35) return {};
+  const fastK = []; for (let i = 13; i < n; i++) { const w = b.slice(i - 13, i + 1); const hh = Math.max(...w.map(z => z.h)), ll = Math.min(...w.map(z => z.l)); fastK.push(hh > ll ? (b[i].c - ll) / (hh - ll) * 100 : 50); }
+  const sma3 = a => a.map((_, i) => i < 2 ? null : (a[i] + a[i - 1] + a[i - 2]) / 3).filter(v => v != null);
+  const K = sma3(fastK), D = sma3(K);
+  const ema = (a, p) => { const k = 2 / (p + 1); let e = a[0]; return a.map(v => (e = v * k + e * (1 - k))); };
+  const c = b.map(z => z.c), e12 = ema(c, 12), e26 = ema(c, 26), macd = c.map((_, i) => e12[i] - e26[i]), sig = ema(macd, 9);
+  return { stK: rd(K[K.length - 1], 1), stD: rd(D[D.length - 1], 1), stKp: rd(K[K.length - 2], 1), macdH: rd(macd[n - 1] - sig[n - 1], 3), macdHp: rd(macd[n - 2] - sig[n - 2], 3), rsiP: rd(rsi(c.slice(0, -1)), 0) };
+}
+
 export async function scanHist() {
   const list = await sp500List();
   const now = et(Date.now() / 1000), td = now.wd !== "Sat" && now.wd !== "Sun";
@@ -365,7 +376,7 @@ export async function scanHist() {
     const adv20 = avg(b.slice(-21, -1).map(z => z.v));
     rows.push({ s: x.s, y: x.y, name: x.name, sec: x.sec, atr: rd(A, 3), rsi: rd(rsi(c), 0), sma20: rd(avg(c.slice(-20)), 3), hi20: rd(Math.max(...b.slice(-20).map(z => z.h)), 3), lo20: rd(Math.min(...b.slice(-20).map(z => z.l)), 3),
       ret5: n > 6 ? rd((c[n - 1] / c[n - 6] - 1) * 100, 2) : null, ret20: n > 21 ? rd((c[n - 1] / c[n - 21] - 1) * 100, 2) : null, rvol: adv20 ? rd(last.v / adv20, 2) : null,
-      lchg: rd((last.c / b[n - 2].c - 1) * 100, 2), clv: last.h > last.l ? rd(((last.c - last.l) - (last.h - last.c)) / (last.h - last.l), 2) : 0, pdh: rd(last.h, 3), pdl: rd(last.l, 3), pdc: rd(last.c, 3), adv20: Math.round(adv20 || 0), day: et(last.t).d });
+      lchg: rd((last.c / b[n - 2].c - 1) * 100, 2), clv: last.h > last.l ? rd(((last.c - last.l) - (last.h - last.c)) / (last.h - last.l), 2) : 0, pdh: rd(last.h, 3), pdl: rd(last.l, 3), pdc: rd(last.c, 3), adv20: Math.round(adv20 || 0), vol: Math.round(last.v || 0), day: et(last.t).d, ...osc(b) });
   });
   if (rows.length < Math.min(50, list.length)) throw new Error("S&P 500 history incomplete (" + rows.length + " of " + list.length + ")");
   return { asOf: new Date().toISOString(), spy5: rd(spy5), spy20: rd(spy20), n: rows.length, missing: list.length - rows.length, rows };
@@ -425,7 +436,30 @@ export async function scanLive(H) {
   const er = rows.filter(r => r.er).sort((a, b) => (a.er.d + a.er.t).localeCompare(b.er.d + b.er.t)).map(r => ({ s: r.s, d: r.er.d, t: r.er.t, est: r.er.est, mcap: r.mcap }));
   const map = rows.map(r => [r.s, r.sec, r.mcap, r.chg, r.gap == null ? "" : r.gap, r.score, r.rsi == null ? "" : r.rsi, r.atrPct == null ? "" : r.atrPct, r.rvol == null ? "" : r.rvol, r.er ? r.er.d.slice(5) + " " + r.er.t : "", r.tv].join("|"));
   const moveLabel = /PRE/.test(state) ? "Pre-market" : /REGULAR/.test(state) ? "Today" : "After hours";
-  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing };
+  const hx = Object.fromEntries(H.rows.map(h => [h.s, h]));
+  const deep = Object.fromEntries(rows.map(r => { const h = hx[r.s] || {}, x = q[h.y] || {};
+    return [r.s, { px: r.px, chg: r.chg, gap: r.gap, ext: r.ext, rsi: r.rsi, rsiP: h.rsiP, stK: h.stK, stD: h.stD, stKp: h.stKp, macdH: h.macdH, macdHp: h.macdHp,
+      rvol: r.rvol, vol: h.vol, adv20: h.adv20, volNow: x.regularMarketVolume || null, avg10: x.averageDailyVolume10Day || null, sma20: r.sma20 ?? h.sma20, sma50: r.sma50, sma200: r.sma200,
+      atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
+  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, deep };
+}
+
+/* ------------------------------------------------------------------ options interest */
+// Nearest-expiry option chain per stock: call/put volume and open interest, put/call ratio, ATM implied vol.
+export async function optionsFor(syms) {
+  const res = await pool(syms, async s => {
+    const j = await getJSON(`/v7/finance/options/${encodeURIComponent(s.replace(/\./g, "-"))}`, { tries: 2 });
+    const r = j && j.optionChain && j.optionChain.result && j.optionChain.result[0]; const o = r && r.options && r.options[0];
+    if (!o) return null;
+    const px = r.quote && r.quote.regularMarketPrice, sum = (a, k) => a.reduce((t, x) => t + (x[k] || 0), 0);
+    const calls = o.calls || [], puts = o.puts || [], cv = sum(calls, "volume"), pv = sum(puts, "volume"), coi = sum(calls, "openInterest"), poi = sum(puts, "openInterest");
+    const near = calls.filter(c => px && Math.abs(c.strike / px - 1) < 0.05).map(c => c.impliedVolatility).filter(v => v > 0);
+    const topC = calls.slice().sort((a, b) => (b.volume || 0) - (a.volume || 0))[0];
+    return [s, { exp: o.expirationDate ? new Date(o.expirationDate * 1000).toISOString().slice(0, 10) : null, cv, pv, coi, poi, pcr: cv ? rd(pv / cv, 2) : null, cvOi: coi ? rd(cv / coi, 2) : null, iv: near.length ? rd(avg(near) * 100, 1) : null, topCall: topC && topC.volume ? { k: topC.strike, v: topC.volume } : null }];
+  }, PROXY_BASE ? 6 : 12);
+  const out = {}; let fails = 0; for (const r of res) { if (r && !r.__err) out[r[0]] = r[1]; else fails++; }
+  if (!Object.keys(out).length) throw new Error("no option chains returned");
+  return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, chains: out };
 }
 
 /* ------------------------------------------------------------------ http helpers */

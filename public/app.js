@@ -38,7 +38,9 @@ const FEEDS = {
   scan: { url: "/data/scan.json", every: 120e3, hidden: 300e3 },
   calendar: { url: "/data/calendar.json", every: 15 * 60e3 },
   flow: { url: "/data/flow.json", every: 3 * 3600e3 },
-  brief: { url: "/api/brief", every: 10 * 60e3 }
+  brief: { url: "/api/brief", every: 10 * 60e3 },
+  deep: { url: "/data/deep.json", every: 120e3, hidden: 300e3 },
+  options: { url: "/data/options.json", every: 300e3 }
 };
 async function load(k) {
   const f = FEEDS[k], m = S.meta[k] = S.meta[k] || { fails: 0 };
@@ -71,6 +73,7 @@ function onData(k) {
   if (k === "markets") { reorder(); renderLab(); renderSymList(); renderChartSyms(); }
   if (k === "flow") { renderCot(); renderFinra(); }
   if (k === "scan") { S.SP = parseScan(S.D.scan); renderScanner(); renderSymList(); if (S.openStock) renderStockDrawer(); }
+  if (k === "deep" || k === "options" || k === "scan") renderWatch();
   if (k === "calendar") { renderCal(); renderNext(); renderTimeline(); }
   if (k === "brief" && S.D.brief && S.D.brief.ai === false && !S.D.brief.error) FEEDS.brief.every = 6 * 3600e3;
   if (k === "brief" || k === "scan" || k === "calendar" || k === "markets") renderBrief();
@@ -322,6 +325,7 @@ async function takeSnapshot(manual) {
     S.snap = { day, at: now.toISOString(), manual: !!manual, rows };
     store.set("uhe.snap", S.snap);
     renderSnap(); renderBrief();
+    if (S.watch.length) { await Promise.all(["deep", "options"].map(k => load(k))); runDeepDive(!manual); }
     if (!manual && S.notify && typeof Notification !== "undefined" && Notification.permission === "granted") {
       try { new Notification("NY open in 10 minutes", { body: rows.slice(0, 3).map(r => `${r.id} ${r.bias} · edge ${r.score}`).join("   ") || "No strong edges. Let the open pick a side.", icon: "/favicon.svg", tag: "uhe-" + day }); } catch (e) { /* ignore */ }
     }
@@ -512,7 +516,7 @@ function srow(r, mode) {
   else if (mode === "long") { v = `${fp(r.px, 2)}<small class="${cls(r.chg)}">${fpct(r.chg)}</small>`; sub = `Trigger > ${fp(r.pdh, 2)} prior high · ATR ${fp(r.atrPct, 1)}%`; }
   else { v = `${fp(r.px, 2)}<small class="${cls(r.chg)}">${fpct(r.chg)}</small>`; sub = `Trigger < ${fp(r.pdl, 2)} prior low · ATR ${fp(r.atrPct, 1)}%`; }
   const er = r.er ? `<span class="pill warn" style="margin-left:6px;padding:2px 7px;font-size:9.5px">ER ${esc(erLabel(r.er))}</span>` : "";
-  return `<div class="srow" data-s="${esc(r.s)}" tabindex="0" role="button"><div style="min-width:0"><span class="t">${esc(r.s)}<small>${esc(r.name || "")}</small></span>${er}<span class="sub">${esc(sub)}</span></div><div class="v">${v}</div><div class="sc ${b}">${r.score}</div></div>`;
+  return `<div class="srow" data-s="${esc(r.s)}" tabindex="0" role="button">${tickBtn(r.s)}<div style="min-width:0"><span class="t">${esc(r.s)}<small>${esc(r.name || "")}</small></span>${er}<span class="sub">${esc(sub)}</span></div><div class="v">${v}</div><div class="sc ${b}">${r.score}</div></div>`;
 }
 function renderSpLists() {
   const SP = S.SP, fill = (id, arr, mode, none) => { $(id).innerHTML = arr && arr.length ? arr.map(r => srow(r, mode)).join("") : `<div class="empty">${none}</div>`; };
@@ -573,10 +577,77 @@ function renderStockDrawer() {
   } else {
     kv = `<div><span>${isRegular() ? "Today" : "Last session"}</span><b class="${cls(r.chg)}">${fpct(r.chg)}</b></div><div><span>${esc(moveWord())}</span><b class="${cls(r.gap)}">${isNum(r.gap) ? fpct(r.gap) : "—"}</b></div><div><span>RSI 14</span><b>${r.rsi ?? "—"}</b></div><div><span>ATR %</span><b>${isNum(r.atrPct) ? r.atrPct.toFixed(1) + "%" : "—"}</b></div><div><span>Rel. volume</span><b>${isNum(r.rvol) ? r.rvol.toFixed(2) + "×" : "—"}</b></div><div><span>Market cap</span><b>$${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}</b></div>`;
   }
-  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · S&amp;P 500</div><div class="sym" id="drSym">${esc(r.s)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
+  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · S&amp;P 500</div><div class="sym" id="drSym">${esc(r.s)} ${tickBtn(r.s, true)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
   $("#drBody").innerHTML = `<div class="dsec"><div class="big-arc">${arc(r.score, b, 150, 92, true)}<div>${pill(b)}${r.er ? ` <span class="pill warn">Earnings ${esc(erLabel(r.er))}</span>` : ""}<p style="margin-top:8px">${b === "neutral" ? "No clear edge. Trade it only if it breaks the prior range with volume." : `Leaning ${b}${stockWhy(comp, b)}.`}</p></div></div></div>
     ${full ? `<div class="dsec"><h3>Why this score</h3><div class="fx">${fx}</div></div>` : ""}${plan}${ladder}
     <div class="dsec"><h3>Stats</h3><div class="kv">${kv}</div>${full ? "" : `<p class="note">Full levels and the opening plan load for the in-play and top-ranked names.</p>`}<p class="note">Scanned ${SP.asOf ? fmtT(new Date(SP.asOf), UK) + " UK" : "—"}; the scan refreshes every minute. The chart above streams live.</p></div>`;
+}
+
+
+/* ================= watchlist deep dive ================= */
+S.watch = (store.get("uhe.watch", []) || []).filter(x => typeof x === "string").slice(0, 25);
+S.dive = store.get("uhe.dive", null);
+const tickBtn = (s, big) => { const on = S.watch.includes(s); return `<button class="tick ${big ? "big" : ""}" data-tick="${esc(s)}" aria-pressed="${on}" title="${on ? "Remove from" : "Add to"} pre-open watchlist">${on ? "✓" : "+"}</button>`; };
+function toggleWatch(s, force) {
+  s = String(s || "").trim().toUpperCase(); if (!s) return;
+  const on = S.watch.includes(s), want = force == null ? !on : force;
+  if (want && !on) { if (S.watch.length >= 25) { toast("The watchlist holds up to 25 stocks."); return; } S.watch.push(s); }
+  if (!want && on) S.watch = S.watch.filter(x => x !== s);
+  store.set("uhe.watch", S.watch);
+  $$(`[data-tick="${CSS.escape(s)}"]`).forEach(b => { const v = S.watch.includes(s); b.setAttribute("aria-pressed", String(v)); b.textContent = v ? "✓" : "+"; });
+  renderWatch();
+}
+// Evaluate the bullish checklist for one stock. Each signal: 1 bullish, -1 bearish, 0 neutral, null = no data.
+function diveOne(s) {
+  const d = S.D.deep && S.D.deep.stocks && S.D.deep.stocks[s], o = S.D.options && S.D.options.chains && S.D.options.chains[s];
+  if (!d) return { s, missing: true };
+  const sig = [];
+  // RSI: momentum zone 50-70, rising
+  if (isNum(d.rsi)) { const up = isNum(d.rsiP) ? d.rsi >= d.rsiP : true; sig.push({ k: "rsi", n: "RSI", v: d.rsi > 70 ? 0 : d.rsi >= 50 && up ? 1 : d.rsi < 45 ? -1 : 0, txt: `${d.rsi}${isNum(d.rsiP) ? (d.rsi >= d.rsiP ? " ↑" : " ↓") : ""}${d.rsi > 70 ? " · overbought" : d.rsi >= 50 ? " · bullish zone" : d.rsi < 45 ? " · weak" : ""}` }); } else sig.push({ k: "rsi", n: "RSI", v: null, txt: "—" });
+  // Stochastic: %K above %D, rising, not overbought
+  if (isNum(d.stK) && isNum(d.stD)) { const up = isNum(d.stKp) ? d.stK > d.stKp : true; sig.push({ k: "stoch", n: "Stochastic", v: d.stK > d.stD && up && d.stK < 85 ? 1 : d.stK < d.stD && !up ? -1 : 0, txt: `%K ${fp(d.stK, 0)} ${d.stK > d.stD ? ">" : "<"} %D ${fp(d.stD, 0)}${up ? " ↑" : " ↓"}${d.stK >= 85 ? " · overbought" : ""}` }); } else sig.push({ k: "stoch", n: "Stochastic", v: null, txt: "—" });
+  // Volume / interest: last session's relative volume, or today's pace once trading
+  const pace = d.volNow && d.avg10 ? d.volNow / d.avg10 : null, rv = isRegular() && pace ? pace : d.rvol;
+  if (isNum(rv)) sig.push({ k: "vol", n: "Volume", v: rv >= 1.3 ? ((d.chg ?? d.gap ?? 0) >= 0 ? 1 : -1) : rv < 0.7 ? -1 : 0, txt: `${rv.toFixed(2)}× average${isRegular() && pace ? " (today so far)" : " (last session)"}` }); else sig.push({ k: "vol", n: "Volume", v: null, txt: "—" });
+  // Options: calls vs puts on the nearest expiry, unusual call activity
+  if (o && (o.cv || o.pv)) { const ratio = o.pv ? o.cv / o.pv : 9; const unusual = isNum(o.cvOi) && o.cvOi >= 0.25; sig.push({ k: "calls", n: "Call buying", v: ratio >= 1.5 ? 1 : ratio <= 0.67 ? -1 : 0, txt: `${ratio >= 9 ? "calls only" : ratio.toFixed(1) + "× calls vs puts"}${unusual ? " · unusual vol/OI " + o.cvOi : ""}${o.topCall ? ` · busiest $${o.topCall.k} call` : ""}` }); } else sig.push({ k: "calls", n: "Call buying", v: null, txt: o ? "no option volume yet" : "no option chain" });
+  // Trend context and pre-market
+  if (isNum(d.sma50) && isNum(d.px)) sig.push({ k: "trend", n: "Trend", v: d.px > d.sma50 && (!isNum(d.sma20) || d.px > d.sma20) ? 1 : d.px < d.sma50 && (!isNum(d.sma20) || d.px < d.sma20) ? -1 : 0, txt: `${fpct((d.px / d.sma50 - 1) * 100, 1)} vs 50-day` });
+  if (isNum(d.gap)) { const atrX = d.atrPct ? Math.abs(d.gap) / d.atrPct : 0; sig.push({ k: "gap", n: moveWord() === "Today" ? "Today" : moveWord(), v: d.gap > 0.2 && atrX < 1.5 ? 1 : d.gap < -0.2 ? -1 : 0, txt: `${fpct(d.gap)}${atrX >= 1.5 ? " · stretched" : ""}` }); }
+  const core = sig.filter(x => ["rsi", "stoch", "vol", "calls"].includes(x.k));
+  const coreBull = core.filter(x => x.v === 1).length, coreBear = core.filter(x => x.v === -1).length, known = core.filter(x => x.v != null).length;
+  const bull = sig.filter(x => x.v === 1).length, bear = sig.filter(x => x.v === -1).length;
+  let verdict = "Mixed", tone = "neutral";
+  if (coreBull === 4) { verdict = "All four aligned · bullish"; tone = "long"; }
+  else if (coreBull === 3 && coreBear === 0 && bull >= 4) { verdict = "Leaning bullish"; tone = "long"; }
+  else if (coreBear >= 3) { verdict = "Leaning bearish"; tone = "short"; }
+  else if (known < 3) { verdict = "Not enough data"; }
+  return { s, d, o, sig, coreBull, known, bull, bear, verdict, tone, level: d.pdh, stop: d.pdc };
+}
+function runDeepDive(auto) {
+  const res = S.watch.map(diveOne);
+  S.dive = { at: new Date().toISOString(), auto: !!auto, res: res.map(r => ({ s: r.s, verdict: r.verdict, tone: r.tone, coreBull: r.coreBull, px: r.d && r.d.px })) };
+  store.set("uhe.dive", S.dive); renderWatch();
+  const hits = res.filter(r => r.tone === "long");
+  if (auto && S.notify && typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try { new Notification("Watchlist radar · NY open in 10 min", { body: hits.length ? hits.map(r => `${r.s}: ${r.verdict}`).join("\n") : "None of your ticked stocks line up bullish right now.", icon: "/favicon.svg", tag: "uhe-watch" }); } catch (e) { /* ignore */ }
+  }
+  if (!auto) toast(hits.length ? `${hits.length} of ${res.length} line up bullish.` : "Deep dive done. Nothing lines up bullish yet.");
+}
+function renderWatch() {
+  const el = $("#watchBody"); if (!el) return;
+  const dl = $("#spSyms"), opts = S.SP ? S.SP.rows.map(r => r.s).sort().map(x => `<option value="${esc(x)}">`).join("") : "";
+  if (dl && dl._h !== opts) { dl.innerHTML = opts; dl._h = opts; }
+  if (!S.watch.length) { el.innerHTML = `<div class="empty"><strong>Nothing ticked yet</strong>Press + on any stock below, or type a ticker above. The radar runs itself at ${hm(nyOpenUKMin(tzParts(new Date(), UK).ymd) - 10)} UK.</div>`; return; }
+  const res = S.watch.map(diveOne).sort((a, b) => (b.coreBull || 0) - (a.coreBull || 0) || (b.bull || 0) - (a.bull || 0));
+  const lock = S.dive ? `<p class="note">Last deep dive ${fmtT(new Date(S.dive.at), UK)} UK${S.dive.auto ? " (automatic, 10 min before the open)" : ""}. Cards below update live with each refresh.</p>` : "";
+  const ico = v => v === 1 ? `<i class="ok">✓</i>` : v === -1 ? `<i class="no">✕</i>` : v === 0 ? `<i class="mid">•</i>` : `<i class="na">–</i>`;
+  el.innerHTML = `<div class="watch-grid">${res.map(r => r.missing ? `<div class="wcard"><div class="wtop"><b class="s">${esc(r.s)}</b>${tickBtn(r.s)}</div><p class="note">Not in the S&amp;P 500 scan, or not loaded yet.</p></div>` :
+    `<div class="wcard ${r.tone}" data-s="${esc(r.s)}" role="button" tabindex="0"><div class="wtop"><div><b class="s">${esc(r.s)}</b> <span class="muted" style="font-size:11px">${esc(r.d.name || "")}</span><div class="num" style="font-size:12.5px">${fp(r.d.px, 2)} <span class="${cls(r.d.chg)}">${fpct(r.d.chg)}</span></div></div><div style="display:flex;gap:6px;align-items:flex-start"><span class="pill ${r.tone}">${esc(r.verdict)}</span>${tickBtn(r.s)}</div></div>
+      <div class="wmeter" title="${r.coreBull} of 4 core signals bullish"><i style="width:${r.coreBull / 4 * 100}%"></i></div>
+      <ul class="wsig">${r.sig.map(x => `<li>${ico(x.v)}<span>${esc(x.n)}</span><em>${esc(x.txt)}</em></li>`).join("")}</ul>
+      ${r.tone === "long" ? `<p class="note">Long trigger above prior high <b class="num">${fp(r.d.pdh, 2)}</b>, risk to prior close ${fp(r.d.pdc, 2)}.</p>` : r.tone === "short" ? `<p class="note">Weak setup. Short trigger below prior low <b class="num">${fp(r.d.pdl, 2)}</b>.</p>` : ""}
+    </div>`).join("")}</div>${lock}<p class="note">“All four aligned” = RSI in the 50–70 zone and rising, stochastic %K over %D and rising, above-average volume, and call volume at least 1.5× puts. Options figures are the last full session (US options trade from 14:30 UK). Signals line up more often before up-days, but they are not a guarantee.</p>`;
 }
 
 /* ================= lab & flow ================= */
@@ -737,6 +808,10 @@ function tick1s() {
 /* ================= events ================= */
 function onCardActivate(e) { const c = e.target.closest("[data-id]"); if (c && !e.target.closest("button")) openDrawer(c.dataset.id); }
 ["#edgeCards", "#matrix", "#heatBody", "#snap"].forEach(sel => { const el = $(sel); el.addEventListener("click", onCardActivate); el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-id]")) { e.preventDefault(); openDrawer(e.target.dataset.id); } }); });
+document.addEventListener("click", e => { const t = e.target.closest("[data-tick]"); if (!t) return; e.preventDefault(); e.stopPropagation(); toggleWatch(t.dataset.tick); }, true);
+$("#watchAdd").addEventListener("submit", e => { e.preventDefault(); const v = $("#watchSym").value.trim().toUpperCase(); if (!v) return; if (S.SP && !S.SP.by[v] && !(S.D.deep && S.D.deep.stocks && S.D.deep.stocks[v])) { toast(`${v} isn't in the S&P 500 scan.`); return; } toggleWatch(v, true); $("#watchSym").value = ""; });
+$("#watchRun").addEventListener("click", async () => { const b = $("#watchRun"); b.disabled = true; b.textContent = "Checking…"; await Promise.all(["deep", "options", "scan"].map(k => load(k))); runDeepDive(false); b.disabled = false; b.textContent = "Deep dive now"; });
+$("#watchBody").addEventListener("click", e => { if (e.target.closest("[data-tick]")) return; const c = e.target.closest(".wcard[data-s]"); if (c) openStock(c.dataset.s); });
 function onStockActivate(e) { const c = e.target.closest("[data-s]"); if (c) openStock(c.dataset.s); }
 ["#tmap", "#spPlay", "#spLongs", "#spShorts", "#spEarn"].forEach(sel => { const el = $(sel); el.addEventListener("click", onStockActivate); el.addEventListener("keydown", e => { if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-s]")) { e.preventDefault(); openStock(e.target.dataset.s); } }); });
 $("#scrim").addEventListener("click", closeDrawer);
@@ -784,7 +859,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { lo
 
 /* ================= boot ================= */
 $("#jDate").value = tzParts(new Date(), UK).ymd;
-renderClocks(); renderRing(); renderTimeline(); renderRegime(); renderEdges(); renderMatrix(); renderSnap(); renderLab(); renderScanner(); renderCot(); renderFinra(); renderCal(); renderNext(); renderBrief(); renderJournal(); renderWeights(); renderStatus(); renderLiveChip();
+renderClocks(); renderRing(); renderTimeline(); renderRegime(); renderEdges(); renderMatrix(); renderSnap(); renderWatch(); renderLab(); renderScanner(); renderCot(); renderFinra(); renderCal(); renderNext(); renderBrief(); renderJournal(); renderWeights(); renderStatus(); renderLiveChip();
 tvTape();
 if ("IntersectionObserver" in window) new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) { S.chart.visible = true; mountMainChart(); } }, { rootMargin: "300px" }).observe($("#live-chart"));
 else { S.chart.visible = true; mountMainChart(); }
