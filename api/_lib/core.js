@@ -345,6 +345,36 @@ export async function sp500List() {
   return rows;
 }
 
+// Nasdaq-100: Wikipedia constituents table (works from GitHub Actions), with a built-in fallback list.
+const NDX_FALLBACK = "AAPL MSFT NVDA AMZN GOOGL GOOG META AVGO TSLA COST NFLX PLTR AMD ASML CSCO TMUS AZN LIN INTU PEP ISRG TXN QCOM BKNG AMGN ADBE AMAT PDD SHOP HON GILD ARM CMCSA MU LRCX PANW ADP KLAC APP INTC MELI SNPS CRWD CEG ADI CDNS VRTX ABNB DASH MSTR SBUX ORLY CTAS MDLZ MAR FTNT REGN TRI MRVL PYPL WDAY CSX ADSK AEP NXPI ROP AXON PCAR MNST IDXX CHTR FAST KDP ROST PAYX DDOG EXC CPRT ZS TTWO VRSK XEL BKR CCEP FANG EA CTSH KHC TEAM ODFL GEHC MCHP CSGP LULU DXCM CDW ON WBD GFS BIIB TTD".split(" ");
+const ICB = { Technology: "Information Technology", Telecommunications: "Communication Services", "Basic Materials": "Materials", "Consumer Services": "Consumer Discretionary", "Consumer Goods": "Consumer Staples", "Oil & Gas": "Energy" };
+let NDX = null;
+export async function ndxList() {
+  if (NDX && Date.now() - NDX.at < 12 * 3600e3) return NDX.rows;
+  let rows = [];
+  try {
+    const r = await fetch("https://en.wikipedia.org/w/api.php?action=parse&page=Nasdaq-100&prop=text&format=json&formatversion=2", { headers: { "User-Agent": "UpperHandEdge/1.0 (dashboard; github.com/joeyjojo0/Upper-Hand-Edge)" }, signal: AbortSignal.timeout(20000) });
+    const html = (await r.json()).parse.text;
+    const t = html.slice(html.indexOf('id="constituents"'));
+    const table = t.slice(0, t.indexOf("</table>"));
+    const cells = tr => [...tr.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map(m => m[1].replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&#160;|&nbsp;/g, " ").trim());
+    const trs = table.split(/<tr[^>]*>/).slice(1).map(cells);
+    const head = trs[0].map(h => h.toLowerCase());
+    const iT = head.findIndex(h => /ticker|symbol/.test(h)), iC = head.findIndex(h => /company|security/.test(h)), iS = head.findIndex(h => /sector|industry/.test(h));
+    for (const c of trs.slice(1)) { const sym = (c[iT] || "").replace(/[^A-Z.]/g, ""); if (!sym) continue; const sn = ICB[c[iS]] || c[iS]; rows.push({ s: sym, y: sym.replace(/\./g, "-"), name: String(c[iC] || sym).slice(0, 30), sec: Math.max(0, SECTORS.indexOf(sn)) }); }
+  } catch (e) { rows = []; }
+  if (rows.length < 90) rows = NDX_FALLBACK.map(s => ({ s, y: s, name: s, sec: 0, fb: true }));
+  NDX = { rows, at: Date.now() };
+  return rows;
+}
+// Combined scan universe: S&P 500 plus Nasdaq-100, each row tagged with membership ("S", "N" or "SN").
+export async function universe() {
+  const [sp, nd] = await Promise.all([sp500List(), ndxList().catch(() => [])]);
+  const by = new Map(sp.map(r => [r.s, { ...r, u: "S" }]));
+  for (const r of nd) { const x = by.get(r.s); if (x) x.u = "SN"; else by.set(r.s, { ...r, u: "N" }); }
+  return [...by.values()];
+}
+
 // Daily-bar metrics for every member (slow: ~500 requests). Cache this for an hour at the edge.
 // Stochastic (14,3,3 slow), its previous value, and MACD (12,26,9) histogram from daily bars.
 function osc(b) {
@@ -358,7 +388,7 @@ function osc(b) {
 }
 
 export async function scanHist() {
-  const list = await sp500List();
+  const list = await universe();
   const now = et(Date.now() / 1000), td = now.wd !== "Sat" && now.wd !== "Sun";
   const hist = await pool(["SPY"].concat(list.map(x => x.y)), async sym => {
     const b = bars(await chart(sym, "3mo", "1d"));
@@ -374,7 +404,7 @@ export async function scanHist() {
     const b = hist[i + 1]; if (!b || b.__err || b.length < 25) return;
     const c = b.map(z => z.c), n = c.length, last = b[n - 1], A = atr(b);
     const adv20 = avg(b.slice(-21, -1).map(z => z.v));
-    rows.push({ s: x.s, y: x.y, name: x.name, sec: x.sec, atr: rd(A, 3), rsi: rd(rsi(c), 0), sma20: rd(avg(c.slice(-20)), 3), hi20: rd(Math.max(...b.slice(-20).map(z => z.h)), 3), lo20: rd(Math.min(...b.slice(-20).map(z => z.l)), 3),
+    rows.push({ s: x.s, y: x.y, name: x.name, sec: x.sec, u: x.u || "S", atr: rd(A, 3), rsi: rd(rsi(c), 0), sma20: rd(avg(c.slice(-20)), 3), hi20: rd(Math.max(...b.slice(-20).map(z => z.h)), 3), lo20: rd(Math.min(...b.slice(-20).map(z => z.l)), 3),
       ret5: n > 6 ? rd((c[n - 1] / c[n - 6] - 1) * 100, 2) : null, ret20: n > 21 ? rd((c[n - 1] / c[n - 21] - 1) * 100, 2) : null, rvol: adv20 ? rd(last.v / adv20, 2) : null,
       lchg: rd((last.c / b[n - 2].c - 1) * 100, 2), clv: last.h > last.l ? rd(((last.c - last.l) - (last.h - last.c)) / (last.h - last.l), 2) : 0, pdh: rd(last.h, 3), pdl: rd(last.l, 3), pdc: rd(last.c, 3), adv20: Math.round(adv20 || 0), vol: Math.round(last.v || 0), day: et(last.t).d, ...osc(b) });
   });
@@ -415,7 +445,7 @@ export async function scanLive(H) {
     let er = null; const ets = x.earningsTimestamp || x.earningsTimestampStart;
     if (ets) { const e = et(ets); if (e.d >= nowET && e.d <= horizon) er = { d: e.d, t: e.h < 12 ? "BMO" : e.h >= 15 ? "AMC" : "DUR", est: !!x.isEarningsDateEstimate }; }
     const exch = x.exchange || "", tv = /^(NMS|NGM|NCM|NAS)$/.test(exch) ? "NASDAQ" : /^(NYQ|NYS)$/.test(exch) ? "NYSE" : /^(ASE|PCX|AMEX)$/.test(exch) ? "AMEX" : /BATS|BTS/.test(exch) ? "CBOE" : "";
-    rows.push({ s: h.s, name: h.name, sec: h.sec, tv, px: rd(px), chg: rd(x.regularMarketChangePercent), gap: rd(gap), ext: rd(ext), mcap: x.marketCap ? rd(x.marketCap / 1e9, 1) : rd(h.adv20 * px * 20 / 1e9, 1),
+    rows.push({ s: h.s, name: h.name, sec: h.sec, u: h.u || "S", tv, px: rd(px), chg: rd(x.regularMarketChangePercent), gap: rd(gap), ext: rd(ext), mcap: x.marketCap ? rd(x.marketCap / 1e9, 1) : rd(h.adv20 * px * 20 / 1e9, 1),
       dv: Math.round((x.averageDailyVolume3Month || h.adv20 || 0) * px / 1e6), atr: rd(A), atrPct: rd(atrPct), rsi: h.rsi, rvol: h.rvol, ret5: rd(h.ret5, 1), ret20: rd(h.ret20, 1), sma20: rd(sma20), sma50: rd(sma50), sma200: rd(sma200),
       d50: sma50 ? rd((px / sma50 - 1) * 100, 1) : null, d200: sma200 ? rd((px / sma200 - 1) * 100, 1) : null, d52: x.fiftyTwoWeekHigh ? rd((px / x.fiftyTwoWeekHigh - 1) * 100, 1) : null,
       pdh: rd(h.pdh), pdl: rd(h.pdl), pdc: rd(h.pdc), hi20: rd(h.hi20), lo20: rd(h.lo20), clv: h.clv, score, comp: Object.fromEntries(Object.entries(comp).map(([k, v]) => [k, rd(v)])), er });
@@ -423,25 +453,30 @@ export async function scanLive(H) {
   if (!rows.length) throw new Error("no S&P 500 quotes returned by Yahoo Finance");
   const pctOf = (a, f) => a.length ? Math.round(a.filter(f).length / a.length * 1000) / 10 : null;
   const capw = (a, k) => { let s = 0, w = 0; for (const r of a) if (r[k] != null && r.mcap) { s += r[k] * r.mcap; w += r.mcap; } return w ? rd(s / w) : null; };
-  const gaps = rows.filter(r => r.gap != null).map(r => r.gap).sort((a, b) => a - b);
-  const breadth = { n: rows.length, adv: rows.filter(r => r.chg > 0).length, dec: rows.filter(r => r.chg < 0).length, a20: pctOf(rows, r => r.px > r.sma20), a50: pctOf(rows, r => r.px > r.sma50), a200: pctOf(rows, r => r.px > r.sma200),
-    nh20: rows.filter(r => r.px >= r.hi20 * 0.995).length, nl20: rows.filter(r => r.px <= r.lo20 * 1.005).length, gapUp: rows.filter(r => r.gap >= 1).length, gapDn: rows.filter(r => r.gap <= -1).length,
-    gapMed: gaps.length ? rd(gaps[Math.floor(gaps.length / 2)]) : null, gapCap: capw(rows, "gap"), chgCap: capw(rows, "chg"), state, spy5: H.spy5, spy20: H.spy20 };
-  const sec = SECTOR_SHORT.map((name, i) => { const a = rows.filter(r => r.sec === i), s = a.slice().sort((x, y) => y.score - x.score); return { name, n: a.length, chg: capw(a, "chg"), gap: capw(a, "gap"), a50: pctOf(a, r => r.px > r.sma50), score: a.length ? Math.round(avg(a.map(r => r.score))) : null, best: s[0] ? s[0].s : null, worst: s[s.length - 1] ? s[s.length - 1].s : null, mcap: Math.round(a.reduce((t, r) => t + (r.mcap || 0), 0)) }; });
-  const liquid = rows.filter(r => r.dv >= 150);
   const slim = r => { const { sma20, ...rest } = r; return rest; };
-  const play = liquid.filter(r => r.gap != null).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 15).map(slim);
-  const longs = liquid.filter(r => r.score >= 62).sort((a, b) => b.score - a.score).slice(0, 15).map(slim);
-  const shorts = liquid.filter(r => r.score <= 38).sort((a, b) => a.score - b.score).slice(0, 15).map(slim);
-  const er = rows.filter(r => r.er).sort((a, b) => (a.er.d + a.er.t).localeCompare(b.er.d + b.er.t)).map(r => ({ s: r.s, d: r.er.d, t: r.er.t, est: r.er.est, mcap: r.mcap }));
-  const map = rows.map(r => [r.s, r.sec, r.mcap, r.chg, r.gap == null ? "" : r.gap, r.score, r.rsi == null ? "" : r.rsi, r.atrPct == null ? "" : r.atrPct, r.rvol == null ? "" : r.rvol, r.er ? r.er.d.slice(5) + " " + r.er.t : "", r.tv].join("|"));
+  const summarize = all => {
+    const gaps = all.filter(r => r.gap != null).map(r => r.gap).sort((a, b) => a - b);
+    const breadth = { n: all.length, adv: all.filter(r => r.chg > 0).length, dec: all.filter(r => r.chg < 0).length, a20: pctOf(all, r => r.px > r.sma20), a50: pctOf(all, r => r.px > r.sma50), a200: pctOf(all, r => r.px > r.sma200),
+      nh20: all.filter(r => r.px >= r.hi20 * 0.995).length, nl20: all.filter(r => r.px <= r.lo20 * 1.005).length, gapUp: all.filter(r => r.gap >= 1).length, gapDn: all.filter(r => r.gap <= -1).length,
+      gapMed: gaps.length ? rd(gaps[Math.floor(gaps.length / 2)]) : null, gapCap: capw(all, "gap"), chgCap: capw(all, "chg"), state, spy5: H.spy5, spy20: H.spy20 };
+    const sec = SECTOR_SHORT.map((name, i) => { const a = all.filter(r => r.sec === i), s = a.slice().sort((x, y) => y.score - x.score); return { name, n: a.length, chg: capw(a, "chg"), gap: capw(a, "gap"), a50: pctOf(a, r => r.px > r.sma50), score: a.length ? Math.round(avg(a.map(r => r.score))) : null, best: s[0] ? s[0].s : null, worst: s[s.length - 1] ? s[s.length - 1].s : null, mcap: Math.round(a.reduce((t, r) => t + (r.mcap || 0), 0)) }; });
+    const liquid = all.filter(r => r.dv >= 150);
+    const play = liquid.filter(r => r.gap != null).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 15).map(slim);
+    const longs = liquid.filter(r => r.score >= 62).sort((a, b) => b.score - a.score).slice(0, 15).map(slim);
+    const shorts = liquid.filter(r => r.score <= 38).sort((a, b) => a.score - b.score).slice(0, 15).map(slim);
+    const er = all.filter(r => r.er).sort((a, b) => (a.er.d + a.er.t).localeCompare(b.er.d + b.er.t)).map(r => ({ s: r.s, d: r.er.d, t: r.er.t, est: r.er.est, mcap: r.mcap }));
+    return { breadth, sec, play, longs, shorts, er };
+  };
+  const SP = summarize(rows.filter(r => r.u.includes("S"))), ND = summarize(rows.filter(r => r.u.includes("N")));
+  const { breadth, sec, play, longs, shorts, er } = SP;
+  const map = rows.map(r => [r.s, r.sec, r.mcap, r.chg, r.gap == null ? "" : r.gap, r.score, r.rsi == null ? "" : r.rsi, r.atrPct == null ? "" : r.atrPct, r.rvol == null ? "" : r.rvol, r.er ? r.er.d.slice(5) + " " + r.er.t : "", r.tv, r.u].join("|"));
   const moveLabel = /PRE/.test(state) ? "Pre-market" : /REGULAR/.test(state) ? "Today" : "After hours";
   const hx = Object.fromEntries(H.rows.map(h => [h.s, h]));
   const deep = Object.fromEntries(rows.map(r => { const h = hx[r.s] || {}, x = q[h.y] || {};
     return [r.s, { px: r.px, chg: r.chg, gap: r.gap, ext: r.ext, rsi: r.rsi, rsiP: h.rsiP, stK: h.stK, stD: h.stD, stKp: h.stKp, macdH: h.macdH, macdHp: h.macdHp,
       rvol: r.rvol, vol: h.vol, adv20: h.adv20, volNow: x.regularMarketVolume || null, avg10: x.averageDailyVolume10Day || null, sma20: r.sma20 ?? h.sma20, sma50: r.sma50, sma200: r.sma200,
-      atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
-  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, deep };
+      u: r.u, atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
+  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, ndx: ND, deep };
 }
 
 /* ------------------------------------------------------------------ options interest */

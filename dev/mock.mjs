@@ -48,7 +48,11 @@ function scanLive() {
       return [s, sec, mcap, chg, gap, score, d ? d.rsi : Math.round(50 + gauss() * 12), d ? d.atrPct : r2(1.2 + rnd() * 2.5), d ? d.rvol : r2(0.5 + rnd()), "", rnd() < 0.45 ? "NASDAQ" : "NYSE"];
     });
   }
-  return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", map: MAP.map(a => a.join("|")) };
+  const NDXS = new Set("AAPL MSFT NVDA AMZN GOOGL GOOG META AVGO TSLA COST NFLX PLTR AMD CSCO TMUS LIN INTU PEP ISRG TXN QCOM BKNG AMGN ADBE AMAT HON GILD CMCSA MU LRCX PANW ADP KLAC APP INTC SNPS CRWD CEG ADI CDNS VRTX ABNB DASH SBUX ORLY CTAS MDLZ MAR FTNT REGN PYPL WDAY CSX ADSK AEP NXPI ROP AXON PCAR MNST IDXX CHTR FAST KDP ROST PAYX DDOG EXC CPRT TTWO VRSK XEL BKR FANG EA CTSH KHC ODFL GEHC MCHP CSGP LULU DXCM CDW ON WBD BIIB".split(" "));
+  const extra = ["ASML|0|300|1.2|0.8|66|61|2.1|1.2||NASDAQ|N", "ARM|0|160|-2.1|-1.4|35|44|4.2|1.6||NASDAQ|N", "SHOP|0|190|0.9|1.1|60|58|3.1|1.1||NASDAQ|N", "MELI|2|110|0.4|0.3|55|52|2.5|0.9||NASDAQ|N", "PDD|2|170|-0.8|-0.5|42|47|3.0|1.0||NASDAQ|N", "MSTR|5|90|3.4|2.2|71|69|6.1|2.3||NASDAQ|N"];
+  const map = MAP.map(a => a.join("|") + "|" + (NDXS.has(a[0]) ? "SN" : "S")).concat(extra);
+  const nd = { breadth: { ...scan.breadth, n: 100 }, sec: scan.sec, play: scan.play.slice(0, 8), longs: scan.longs.slice(0, 8), shorts: scan.shorts.slice(0, 8), er: scan.er };
+  return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", map, ndx: nd };
 }
 export async function handle(name) {
   switch (name) {

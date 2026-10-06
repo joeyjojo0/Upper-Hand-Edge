@@ -180,12 +180,19 @@ export function calItems(cal) { return ((cal && cal.items) || []).map(i => ({ ..
 
 /* ------------------------------------------------------------ S&P scan helpers */
 const nv = v => v === "" || v == null ? null : (isFinite(+v) ? +v : null);
-export function parseScan(d) {
+// u: "sp" (S&P 500, default), "ndx" (Nasdaq-100) or "all" (both). Summaries come from the server per universe.
+export function parseScan(d, u = "sp") {
   if (!d) return null;
   const names = d.sectors || [];
-  const det = {}; for (const r of [].concat(d.play || [], d.longs || [], d.shorts || [])) det[r.s] = r;
-  const rows = (d.map || []).map(line => { const [s, sec, mcap, chg, gap, score, rsi, atrPct, rvol, er, tv] = String(line).split("|"); return { s, sec: +sec, mcap: +mcap || 0, chg: nv(chg), gap: nv(gap), score: +score, rsi: nv(rsi), atrPct: nv(atrPct), rvol: nv(rvol), er: er || null, tv: tv || "" }; }).filter(r => r.s);
-  return { ...d, names, rows, det, by: Object.fromEntries(rows.map(r => [r.s, r])) };
+  const sum = u === "ndx" && d.ndx ? d.ndx : u === "all" && d.ndx ? mergeSum(d, d.ndx) : d;
+  const det = {}; for (const r of [].concat(d.play || [], d.longs || [], d.shorts || [], (d.ndx && d.ndx.play) || [], (d.ndx && d.ndx.longs) || [], (d.ndx && d.ndx.shorts) || [])) det[r.s] = r;
+  const all = (d.map || []).map(line => { const [s, sec, mcap, chg, gap, score, rsi, atrPct, rvol, er, tv, mem] = String(line).split("|"); return { s, sec: +sec, mcap: +mcap || 0, chg: nv(chg), gap: nv(gap), score: +score, rsi: nv(rsi), atrPct: nv(atrPct), rvol: nv(rvol), er: er || null, tv: tv || "", u: mem || "S" }; }).filter(r => r.s);
+  const rows = u === "ndx" ? all.filter(r => r.u.includes("N")) : u === "all" ? all : all.filter(r => r.u.includes("S"));
+  return { ...d, ...sum, universe: u, hasNdx: !!d.ndx, names, rows, det, by: Object.fromEntries(all.map(r => [r.s, r])) };
+}
+function mergeSum(a, b) {
+  const uniq = (x, y, k) => { const seen = new Set(), out = []; for (const r of [].concat(x || [], y || [])) if (!seen.has(r.s)) { seen.add(r.s); out.push(r); } return k ? out.sort(k) : out; };
+  return { breadth: a.breadth, sec: a.sec, play: uniq(a.play, b.play, (p, q) => Math.abs(q.gap) - Math.abs(p.gap)).slice(0, 15), longs: uniq(a.longs, b.longs, (p, q) => q.score - p.score).slice(0, 15), shorts: uniq(a.shorts, b.shorts, (p, q) => p.score - q.score).slice(0, 15), er: uniq(a.er, b.er, (p, q) => (p.d + p.t).localeCompare(q.d + q.t)) };
 }
 export const spBias = sc => sc >= 62 ? "long" : sc <= 38 ? "short" : "neutral";
 export function erLabel(er) {

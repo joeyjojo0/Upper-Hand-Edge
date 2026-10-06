@@ -72,7 +72,7 @@ function onData(k) {
   if (k === "quotes" || k === "basis" || k === "markets" || k === "flow") recompute();
   if (k === "markets") { reorder(); renderLab(); renderSymList(); renderChartSyms(); }
   if (k === "flow") { renderCot(); renderFinra(); }
-  if (k === "scan") { S.SP = parseScan(S.D.scan); renderScanner(); renderSymList(); if (S.openStock) renderStockDrawer(); }
+  if (k === "scan") { S.SP = parseScan(S.D.scan, S.universe); renderScanner(); renderSymList(); if (S.openStock) renderStockDrawer(); }
   if (k === "deep" || k === "options" || k === "scan") renderWatch();
   if (k === "calendar") { renderCal(); renderNext(); renderTimeline(); }
   if (k === "brief" && S.D.brief && S.D.brief.ai === false && !S.D.brief.error) FEEDS.brief.every = 6 * 3600e3;
@@ -154,8 +154,8 @@ function mountMainChart() {
   S.chart.key = key; tvEmbed($("#tvMain"), "advanced-chart", chartCfg(tvSym(S.chart.id, S.chart.feed)));
 }
 function mountHeat() {
-  if (S.heatOn) return; S.heatOn = true;
-  tvEmbed($("#tvHeat"), "stock-heatmap", { exchanges: [], dataSource: "SPX500", grouping: "sector", blockSize: "market_cap_basic", blockColor: "change", locale: "en", symbolUrl: "", colorTheme: "dark", hasTopBar: true, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, isMonoSize: false, width: "100%", height: "100%" });
+  const key = S.universe === "ndx" ? "ndx" : "sp"; if (S.heatOn === key) return; S.heatOn = key;
+  tvEmbed($("#tvHeat"), "stock-heatmap", { exchanges: [], dataSource: S.universe === "ndx" ? "NASDAQ100" : "SPX500", grouping: "sector", blockSize: "market_cap_basic", blockColor: "change", locale: "en", symbolUrl: "", colorTheme: "dark", hasTopBar: true, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, isMonoSize: false, width: "100%", height: "100%" });
 }
 
 /* ================= svg ================= */
@@ -206,7 +206,7 @@ function renderStatus() {
   const mk = D.markets;
   if (mk && mk.asOf) chips.push(chip(mk.errors && mk.errors.length ? "warn" : "ok", `Sessions ${fmtT(new Date(mk.asOf), UK)}`, (mk.errors || []).join("\n") || "15-minute session bars and NY-open statistics"));
   else if (S.meta.markets && S.meta.markets.fails) chips.push(chip("bad", "Sessions offline", S.meta.markets.err));
-  if (D.scan && D.scan.asOf) chips.push(chip("ok", `S&amp;P scan ${fmtT(new Date(D.scan.asOf), UK)}`, `${D.scan.breadth ? D.scan.breadth.n : ""} stocks`));
+  if (D.scan && D.scan.asOf) chips.push(chip("ok", `Stock scan ${fmtT(new Date(D.scan.asOf), UK)}`, `${D.scan.breadth ? D.scan.breadth.n : ""} stocks`));
   else if (S.meta.scan && S.meta.scan.fails) chips.push(chip("bad", "Scanner offline", S.meta.scan.err));
   const cot = D.flow && D.flow.cot, fin = D.flow && D.flow.finra;
   if (cot && cot.report) chips.push(`<span class="hide-sm">${chip("ok", "COT " + esc(fmtDay(cot.report, { day: "numeric", month: "short" })), cot.source)}</span>`);
@@ -454,7 +454,7 @@ function renderBreadth() {
   let read = "";
   if (isNum(b.a50) && isNum(b.spy20)) read = b.a50 < 40 && b.spy20 > -1 ? `Narrow market: SPY is ${fpct(b.spy20, 2)} over 20 sessions, but only ${Math.round(b.a50)}% of members sit above their 50-day. Leadership is concentrated in the mega caps.` : b.a50 > 60 ? `Broad participation: ${Math.round(b.a50)}% of members are above their 50-day.` : `Mixed participation: ${Math.round(b.a50)}% of members are above their 50-day.`;
   const mw = moveWord().toLowerCase();
-  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="eyebrow">Breadth · ${b.n} stocks</div><span class="pill ${b.state === "REGULAR" ? "long" : "cyan"}">${esc(stateName)}</span></div>
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="eyebrow">${S.universe === "all" ? "S&amp;P 500 breadth" : "Breadth"} · ${b.n} stocks</div><span class="pill ${b.state === "REGULAR" ? "long" : "cyan"}">${esc(stateName)}</span></div>
     <div class="brd-row"><span>${isRegular() ? "Today" : "Last session"}: up vs down</span><b><span class="up">${b.adv}</span> / <span class="down">${b.dec}</span></b></div>${split(b.adv, b.dec)}
     <div class="brd-row"><span>Moving ±1% ${mw === "today" ? "today" : mw}</span><b><span class="up">${b.gapUp}</span> / <span class="down">${b.gapDn}</span></b></div>${split(b.gapUp, b.gapDn)}
     <div class="brd-row"><span>Cap-weighted ${mw} move</span><b class="${cls(b.gapCap)}">${fpct(b.gapCap)}</b></div>
@@ -536,11 +536,22 @@ function renderSecBoard() {
 }
 function renderSpEarn() {
   const el = $("#spEarn"), SP = S.SP, er = SP && SP.er || [];
-  if (!er.length) { el.innerHTML = `<div class="eyebrow">S&amp;P 500 earnings · next 7 days</div><div class="empty">${SP ? "No members report in the next 7 days." : waitMsg("scan")}</div>`; return; }
+  if (!er.length) { el.innerHTML = `<div class="eyebrow">${uName()} earnings · next 7 days</div><div class="empty">${SP ? "No members report in the next 7 days." : waitMsg("scan")}</div>`; return; }
   const days = [...new Set(er.map(e => e.d))].sort();
-  el.innerHTML = `<div class="eyebrow">S&amp;P 500 earnings · next 7 days</div>` + days.map(d => `<div class="erday"><h4>${esc(fmtDay(d, { weekday: "long", day: "numeric", month: "short" }))}</h4><div class="erchips">${er.filter(e => e.d === d).sort((a, b) => (b.mcap || 0) - (a.mcap || 0)).map(e => `<span class="erchip ${e.mcap >= 100 ? "big" : ""}" data-s="${esc(e.s)}" role="button" tabindex="0" title="Market cap $${Math.round(e.mcap)}B${e.est ? " · date estimated" : ""}">${esc(e.s)}<small>${e.t === "BMO" ? "pre-open" : e.t === "AMC" ? "after close" : "in session"}</small></span>`).join("")}</div></div>`).join("") + `<p class="note">Pre-open reports hit before the 14:30 UK open; after-close reports gap the next morning.</p>`;
+  el.innerHTML = `<div class="eyebrow">${uName()} earnings · next 7 days</div>` + days.map(d => `<div class="erday"><h4>${esc(fmtDay(d, { weekday: "long", day: "numeric", month: "short" }))}</h4><div class="erchips">${er.filter(e => e.d === d).sort((a, b) => (b.mcap || 0) - (a.mcap || 0)).map(e => `<span class="erchip ${e.mcap >= 100 ? "big" : ""}" data-s="${esc(e.s)}" role="button" tabindex="0" title="Market cap $${Math.round(e.mcap)}B${e.est ? " · date estimated" : ""}">${esc(e.s)}<small>${e.t === "BMO" ? "pre-open" : e.t === "AMC" ? "after close" : "in session"}</small></span>`).join("")}</div></div>`).join("") + `<p class="note">Pre-open reports hit before the 14:30 UK open; after-close reports gap the next morning.</p>`;
 }
-function renderScanner() { renderBreadth(); renderTreemap(); renderSpLists(); renderSecBoard(); renderSpEarn(); }
+S.universe = ["sp", "ndx", "all"].includes(store.get("uhe.univ", "sp")) ? store.get("uhe.univ", "sp") : "sp";
+const uName = () => S.universe === "ndx" ? "Nasdaq-100" : S.universe === "all" ? "S&amp;P 500 + Nasdaq-100" : "S&amp;P 500";
+function setUniverse(u) {
+  S.universe = u; store.set("uhe.univ", u);
+  $$("#univTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.u === u)));
+  if (S.D.scan) S.SP = parseScan(S.D.scan, u);
+  renderScanner(); renderSymList(); if (S.mapMetric === "tv") { S.heatOn = null; mountHeat(); }
+}
+function renderScanner() {
+  $$("#univTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.u === S.universe)));
+  $("#spTitle").innerHTML = `${uName()} scanner`;
+  const nd = $("#univTabs [data-u=ndx]"), al = $("#univTabs [data-u=all]"); const has = !S.SP || S.SP.hasNdx; nd.disabled = al.disabled = !has; nd.title = has ? "" : "Nasdaq-100 loads after the next data-engine run"; renderBreadth(); renderTreemap(); renderSpLists(); renderSecBoard(); renderSpEarn(); }
 function stockWhy(comp, b) {
   const sign = b === "long" ? 1 : -1;
   const top = SP_COMP.map(([k, n]) => [n.toLowerCase(), (comp[k] || 0) * SP_W[k] * sign]).filter(([, v]) => v > 1).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([n]) => n);
@@ -577,7 +588,7 @@ function renderStockDrawer() {
   } else {
     kv = `<div><span>${isRegular() ? "Today" : "Last session"}</span><b class="${cls(r.chg)}">${fpct(r.chg)}</b></div><div><span>${esc(moveWord())}</span><b class="${cls(r.gap)}">${isNum(r.gap) ? fpct(r.gap) : "—"}</b></div><div><span>RSI 14</span><b>${r.rsi ?? "—"}</b></div><div><span>ATR %</span><b>${isNum(r.atrPct) ? r.atrPct.toFixed(1) + "%" : "—"}</b></div><div><span>Rel. volume</span><b>${isNum(r.rvol) ? r.rvol.toFixed(2) + "×" : "—"}</b></div><div><span>Market cap</span><b>$${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}</b></div>`;
   }
-  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · S&amp;P 500</div><div class="sym" id="drSym">${esc(r.s)} ${tickBtn(r.s, true)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
+  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · ${r.u === "N" ? "Nasdaq-100" : r.u === "SN" ? "S&amp;P 500 · Nasdaq-100" : "S&amp;P 500"}</div><div class="sym" id="drSym">${esc(r.s)} ${tickBtn(r.s, true)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
   $("#drBody").innerHTML = `<div class="dsec"><div class="big-arc">${arc(r.score, b, 150, 92, true)}<div>${pill(b)}${r.er ? ` <span class="pill warn">Earnings ${esc(erLabel(r.er))}</span>` : ""}<p style="margin-top:8px">${b === "neutral" ? "No clear edge. Trade it only if it breaks the prior range with volume." : `Leaning ${b}${stockWhy(comp, b)}.`}</p></div></div></div>
     ${full ? `<div class="dsec"><h3>Why this score</h3><div class="fx">${fx}</div></div>` : ""}${plan}${ladder}
     <div class="dsec"><h3>Stats</h3><div class="kv">${kv}</div>${full ? "" : `<p class="note">Full levels and the opening plan load for the in-play and top-ranked names.</p>`}<p class="note">Scanned ${SP.asOf ? fmtT(new Date(SP.asOf), UK) + " UK" : "—"}; the scan refreshes every minute. The chart above streams live.</p></div>`;
@@ -826,6 +837,7 @@ $("#clsTabs").addEventListener("click", e => { const b = e.target.closest("butto
 $("#sortSel").addEventListener("change", e => { S.sort = e.target.value; reorder(); renderMatrix(); });
 $("#chartSyms").addEventListener("click", e => { const b = e.target.closest("button[data-sym]"); if (b) setChart(b.dataset.sym); });
 $("#feedTabs").addEventListener("click", e => { const b = e.target.closest("button[data-f]"); if (b && !b.disabled) setChart(S.chart.id, b.dataset.f); });
+$("#univTabs").addEventListener("click", e => { const b = e.target.closest("button[data-u]"); if (b && !b.disabled) setUniverse(b.dataset.u); });
 $("#mapMetric").addEventListener("click", e => { const b = e.target.closest("button[data-m]"); if (!b) return; S.mapMetric = b.dataset.m; $$("#mapMetric button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); renderTreemap(); });
 $("#briefSrc").addEventListener("click", e => { const b = e.target.closest("button[data-b]"); if (!b) return; S.briefMode = b.dataset.b; renderBrief(); });
 $("#briefMore").addEventListener("click", () => { $("#briefText").classList.toggle("clamped"); renderBrief(); });

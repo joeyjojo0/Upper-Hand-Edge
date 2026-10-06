@@ -40,6 +40,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url.includes("/v7/finance/quote")) { if (!quoteOK) return json({ finance: { error: "Unauthorized" } }, 401); const syms = decodeURIComponent(new URL(url).searchParams.get("symbols")).split(","); return json(quoteJSON(syms)); }
   if (url.includes("/v8/finance/chart/")) { const u = new URL(url), sym = decodeURIComponent(u.pathname.split("/").pop()); return json(chartJSON(sym, u.searchParams.get("range"), u.searchParams.get("interval"))); }
   if (url.includes("constituents.csv")) return new Response(CSV);
+  if (url.includes("wikipedia.org")) { const rows = ["AAA", "NNN"].concat(Array.from({ length: 98 }, (_, i) => "Z" + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26)))); return json({ parse: { text: '<table id="constituents"><tr><th>Company</th><th>Ticker</th><th>GICS Sector</th></tr>' + rows.map(t => `<tr><td>${t} Co</td><td>${t}</td><td>Information Technology</td></tr>`).join("") + "</table>" } }); }
   if (url.includes("cdn.finra.org")) { const rows = ["Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market"]; for (const s of ["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT", "HYG", "XLF", "XLK", "SMH"]) rows.push(`x|${s}|${Math.round(5e5 + rnd() * 1e5)}|0|1000000|B,Q,N`); return new Response(rows.join("\n") + "\n" + "#".repeat(1200)); }
   if (url.includes("publicreporting.cftc.gov")) { const out = []; for (let w = 0; w < 60; w++) for (const code of Object.values(core.COT_CODES)) out.push({ report_date_as_yyyy_mm_dd: new Date((NOW - (60 - w) * 7 * DAY) * 1000).toISOString().slice(0, 10) + "T00:00:00.000", cftc_contract_market_code: code, market_and_exchange_names: "TEST - CME", noncomm_positions_long_all: String(1000 + w * 10), noncomm_positions_short_all: "900", open_interest_all: "5000" }); return json(out); }
   if (url.includes("faireconomy")) return json([{ title: "CPI m/m", country: "USD", date: "2026-09-29T08:30:00-04:00", impact: "High", forecast: "0.3%", previous: "0.2%" }, { title: "Bank Holiday", country: "JPY", date: "2026-09-30T00:00:00-04:00", impact: "Holiday", forecast: "", previous: "" }, { title: "Low thing", country: "USD", date: "2026-09-29T10:00:00-04:00", impact: "Low" }]);
@@ -85,15 +86,17 @@ test("basis(): futures/ETF ratio from aligned 1-minute bars", async () => {
 
 test("scanHist() + scanLive(): scores, breadth and the heat-map rows", async () => {
   const H = await core.scanHist();
-  assert.equal(H.n, 3);
+  assert.equal(H.n, 102, "S&P 500 (3) + Nasdaq-100 (100) with AAA in both");
+  assert.equal(H.rows.find(r => r.s === "AAA").u, "SN"); assert.equal(H.rows.find(r => r.s === "NNN").u, "N");
   assert.equal(H.rows.find(r => r.s === "BRK.B").y, "BRK-B");
   const L = await core.scanLive(H);
-  assert.equal(L.breadth.n, 3);
+  assert.equal(L.breadth.n, 3, "headline breadth stays S&P 500"); assert.equal(L.ndx.breadth.n, 100);
   assert.equal(L.moveLabel, "Pre-market");
-  assert.equal(L.map.length, 3);
-  const parts = L.map[0].split("|"); assert.equal(parts.length, 11); assert.equal(parts[10], "NASDAQ");
+  assert.equal(L.map.length, 102);
+  const parts = L.map[0].split("|"); assert.equal(parts.length, 12); assert.equal(parts[10], "NASDAQ");
   assert.equal(L.er.length, 3, "earnings within 7 days are listed");
   const sp = parseScan(L); assert.equal(sp.rows.length, 3); assert.equal(sp.rows[0].tv, "NASDAQ");
+  assert.equal(parseScan(L, "ndx").rows.length, 100); assert.equal(parseScan(L, "all").rows.length, 102);
 });
 
 test("finra(), cot(), calendar() parse the public files", async () => {
