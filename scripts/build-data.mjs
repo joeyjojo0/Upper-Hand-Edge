@@ -33,7 +33,8 @@ await job("markets", markets);
 const H = await job("scan-hist", scanHist);
 let SC = null;
 if (H && H.rows) SC = await job("scan", async () => { const v = await scanLive(H); const { deep, ...rest } = v; await writeFile(`${OUT}/deep.json`, JSON.stringify({ asOf: v.asOf, stocks: deep })); return rest; });
-if (H && H.rows) await job("options", () => optionsFor(H.rows.map(r => r.s)));
+// Options for index members plus Nasdaq names trading over ~$100M a day (keeps each run to ~700 chains).
+if (H && H.rows) await job("options", () => optionsFor(H.rows.filter(r => /[SN]/.test(r.u || "S") || r.adv20 * r.pdc >= 1e8).map(r => r.s)));
 await job("flow", async () => {
   const [f, c] = await Promise.allSettled([finra(), cot()]);
   const v = r => r.status === "fulfilled" ? r.value : { error: String(r.reason && r.reason.message || r.reason) };

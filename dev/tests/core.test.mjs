@@ -41,6 +41,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url.includes("/v8/finance/chart/")) { const u = new URL(url), sym = decodeURIComponent(u.pathname.split("/").pop()); return json(chartJSON(sym, u.searchParams.get("range"), u.searchParams.get("interval"))); }
   if (url.includes("constituents.csv")) return new Response(CSV);
   if (url.includes("wikipedia.org")) { const rows = ["AAA", "NNN"].concat(Array.from({ length: 98 }, (_, i) => "Z" + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26)))); return json({ parse: { text: '<table id="constituents"><tr><th>Company</th><th>Ticker</th><th>GICS Sector</th></tr>' + rows.map(t => `<tr><td>${t} Co</td><td>${t}</td><td>Information Technology</td></tr>`).join("") + "</table>" } }); }
+  if (url.includes("nasdaqlisted.txt")) { const L = ["Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares", "AAA|Alpha Inc - Common Stock|Q|N|N|100|N|N", "NNN|Enn Co - Class A Common Stock|Q|N|N|100|N|N", "QQQ|Invesco QQQ Trust|G|N|N|100|Y|N", "TSTX|Test Co|Q|Y|N|100|N|N", "ABCDW|Abc Corp - Warrant|Q|N|N|100|N|N", "BADD|Bad Co - Common Stock|Q|N|D|100|N|N", "PFDX|Pfd Co - 7.5% Series A Preferred Stock|Q|N|N|100|N|N"]; for (let i = 0; i < 1000; i++) L.push(`Q${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26) % 26)}${String.fromCharCode(65 + Math.floor(i / 676))}|Q${i} Holdings - Common Stock|S|N|N|100|N|N`); L.push("File Creation Time: 1007202612:00|||||||"); return new Response(L.join("\n")); }
   if (url.includes("cdn.finra.org")) { const rows = ["Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market"]; for (const s of ["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT", "HYG", "XLF", "XLK", "SMH"]) rows.push(`x|${s}|${Math.round(5e5 + rnd() * 1e5)}|0|1000000|B,Q,N`); return new Response(rows.join("\n") + "\n" + "#".repeat(1200)); }
   if (url.includes("publicreporting.cftc.gov")) { const out = []; for (let w = 0; w < 60; w++) for (const code of Object.values(core.COT_CODES)) out.push({ report_date_as_yyyy_mm_dd: new Date((NOW - (60 - w) * 7 * DAY) * 1000).toISOString().slice(0, 10) + "T00:00:00.000", cftc_contract_market_code: code, market_and_exchange_names: "TEST - CME", noncomm_positions_long_all: String(1000 + w * 10), noncomm_positions_short_all: "900", open_interest_all: "5000" }); return json(out); }
   if (url.includes("faireconomy")) return json([{ title: "CPI m/m", country: "USD", date: "2026-09-29T08:30:00-04:00", impact: "High", forecast: "0.3%", previous: "0.2%" }, { title: "Bank Holiday", country: "JPY", date: "2026-09-30T00:00:00-04:00", impact: "Holiday", forecast: "", previous: "" }, { title: "Low thing", country: "USD", date: "2026-09-29T10:00:00-04:00", impact: "Low" }]);
@@ -86,17 +87,21 @@ test("basis(): futures/ETF ratio from aligned 1-minute bars", async () => {
 
 test("scanHist() + scanLive(): scores, breadth and the heat-map rows", async () => {
   const H = await core.scanHist();
-  assert.equal(H.n, 102, "S&P 500 (3) + Nasdaq-100 (100) with AAA in both");
-  assert.equal(H.rows.find(r => r.s === "AAA").u, "SN"); assert.equal(H.rows.find(r => r.s === "NNN").u, "N");
+  assert.equal(H.n, 1102, "S&P 500 (3) + Nasdaq-100 (100) + 1000 Nasdaq-only, AAA in all three");
+  assert.equal(H.rows.find(r => r.s === "AAA").u, "SNQ"); assert.equal(H.rows.find(r => r.s === "NNN").u, "NQ");
+  assert.equal(H.rows.find(r => r.s === "QAAA").u, "Q"); assert.equal(H.rows.find(r => r.s === "QAAA").sec, 11);
+  for (const bad of ["QQQ", "TSTX", "ABCDW", "BADD", "PFDX"]) assert.ok(!H.rows.find(r => r.s === bad), bad + " filtered out");
   assert.equal(H.rows.find(r => r.s === "BRK.B").y, "BRK-B");
   const L = await core.scanLive(H);
-  assert.equal(L.breadth.n, 3, "headline breadth stays S&P 500"); assert.equal(L.ndx.breadth.n, 100);
+  assert.equal(L.breadth.n, 3, "headline breadth stays S&P 500"); assert.equal(L.ndx.breadth.n, 100); assert.equal(L.nasdaq.breadth.n, 1100);
   assert.equal(L.moveLabel, "Pre-market");
-  assert.equal(L.map.length, 102);
+  assert.equal(L.map.length, 1102);
   const parts = L.map[0].split("|"); assert.equal(parts.length, 12); assert.equal(parts[10], "NASDAQ");
+  assert.equal(L.map.find(l => l.startsWith("QAAA|")).split("|")[11], "Q");
   assert.equal(L.er.length, 3, "earnings within 7 days are listed");
   const sp = parseScan(L); assert.equal(sp.rows.length, 3); assert.equal(sp.rows[0].tv, "NASDAQ");
-  assert.equal(parseScan(L, "ndx").rows.length, 100); assert.equal(parseScan(L, "all").rows.length, 102);
+  assert.equal(parseScan(L, "ndx").rows.length, 100); assert.equal(parseScan(L, "nasdaq").rows.length, 1100); assert.equal(parseScan(L, "all").rows.length, 1102);
+  assert.equal(parseScan(L, "nasdaq").names[11], "Other Nasdaq");
 });
 
 test("finra(), cot(), calendar() parse the public files", async () => {

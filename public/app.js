@@ -154,8 +154,8 @@ function mountMainChart() {
   S.chart.key = key; tvEmbed($("#tvMain"), "advanced-chart", chartCfg(tvSym(S.chart.id, S.chart.feed)));
 }
 function mountHeat() {
-  const key = S.universe === "ndx" ? "ndx" : "sp"; if (S.heatOn === key) return; S.heatOn = key;
-  tvEmbed($("#tvHeat"), "stock-heatmap", { exchanges: [], dataSource: S.universe === "ndx" ? "NASDAQ100" : "SPX500", grouping: "sector", blockSize: "market_cap_basic", blockColor: "change", locale: "en", symbolUrl: "", colorTheme: "dark", hasTopBar: true, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, isMonoSize: false, width: "100%", height: "100%" });
+  const key = S.universe === "all" ? "sp" : S.universe; if (S.heatOn === key) return; S.heatOn = key;
+  tvEmbed($("#tvHeat"), "stock-heatmap", { exchanges: [], dataSource: S.universe === "ndx" ? "NASDAQ100" : S.universe === "nasdaq" ? "NASDAQCOMPOSITE" : "SPX500", grouping: "sector", blockSize: "market_cap_basic", blockColor: "change", locale: "en", symbolUrl: "", colorTheme: "dark", hasTopBar: true, isDataSetEnabled: false, isZoomEnabled: true, hasSymbolTooltip: true, isMonoSize: false, width: "100%", height: "100%" });
 }
 
 /* ================= svg ================= */
@@ -454,7 +454,7 @@ function renderBreadth() {
   let read = "";
   if (isNum(b.a50) && isNum(b.spy20)) read = b.a50 < 40 && b.spy20 > -1 ? `Narrow market: SPY is ${fpct(b.spy20, 2)} over 20 sessions, but only ${Math.round(b.a50)}% of members sit above their 50-day. Leadership is concentrated in the mega caps.` : b.a50 > 60 ? `Broad participation: ${Math.round(b.a50)}% of members are above their 50-day.` : `Mixed participation: ${Math.round(b.a50)}% of members are above their 50-day.`;
   const mw = moveWord().toLowerCase();
-  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="eyebrow">${S.universe === "all" ? "S&amp;P 500 breadth" : "Breadth"} · ${b.n} stocks</div><span class="pill ${b.state === "REGULAR" ? "long" : "cyan"}">${esc(stateName)}</span></div>
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><div class="eyebrow">${S.universe === "all" ? "S&amp;P 500 breadth" : "Breadth"} · ${b.n.toLocaleString()} stocks</div><span class="pill ${b.state === "REGULAR" ? "long" : "cyan"}">${esc(stateName)}</span></div>
     <div class="brd-row"><span>${isRegular() ? "Today" : "Last session"}: up vs down</span><b><span class="up">${b.adv}</span> / <span class="down">${b.dec}</span></b></div>${split(b.adv, b.dec)}
     <div class="brd-row"><span>Moving ±1% ${mw === "today" ? "today" : mw}</span><b><span class="up">${b.gapUp}</span> / <span class="down">${b.gapDn}</span></b></div>${split(b.gapUp, b.gapDn)}
     <div class="brd-row"><span>Cap-weighted ${mw} move</span><b class="${cls(b.gapCap)}">${fpct(b.gapCap)}</b></div>
@@ -486,16 +486,17 @@ function tileColor(v, metric) {
 function renderTreemap() {
   const el = $("#tmap"), lg = $("#tmLegend"), heat = $("#tvHeat"), metric = S.mapMetric || "gap", SP = S.SP;
   $("#mmGap").textContent = moveWord() === "Today" ? "Today's move" : moveWord() + " move";
-  if (metric === "tv") { el.hidden = true; heat.hidden = false; mountHeat(); lg.innerHTML = `<span>Streaming from TradingView · S&amp;P 500 by sector, sized by market cap, coloured by today's change.</span>`; return; }
+  if (metric === "tv") { el.hidden = true; heat.hidden = false; mountHeat(); lg.innerHTML = `<span>Streaming from TradingView · ${S.universe === "nasdaq" ? "Nasdaq Composite" : S.universe === "ndx" ? "Nasdaq-100" : "S&amp;P 500"} by sector, sized by market cap, coloured by today's change.</span>`; return; }
   el.hidden = false; heat.hidden = true;
   if (!SP || !SP.rows.length) { el.innerHTML = `<div class="empty" style="padding-top:220px">${S.D.scan ? "No heat-map data in this scan." : waitMsg("scan")}</div>`; lg.innerHTML = ""; return; }
   const W = el.clientWidth || 800, H = el.clientHeight || 560;
-  const secs = SP.names.map((name, i) => ({ i, name, v: SP.rows.filter(r => r.sec === i).reduce((s, r) => s + (r.mcap || 0), 0) }));
+  const CAP = 700, ROWS = SP.rows.length > CAP ? SP.rows.slice().sort((a, b) => (b.mcap || 0) - (a.mcap || 0)).slice(0, CAP) : SP.rows;
+  const secs = SP.names.map((name, i) => ({ i, name, v: ROWS.filter(r => r.sec === i).reduce((s, r) => s + (r.mcap || 0), 0) })).filter(x => x.v > 0);
   let html = "";
   for (const sr of squarify(secs, 0, 0, W, H)) {
     const head = sr.h > 60 && sr.w > 70 ? 16 : 0;
     html += `<div class="tm-sec" style="left:${sr.x}px;top:${sr.y}px;width:${sr.w}px;height:${sr.h}px">${head ? `<b>${esc(sr.name)}</b>` : ""}`;
-    for (const t of squarify(SP.rows.filter(r => r.sec === sr.i).map(r => ({ ...r, v: r.mcap || 0.5 })), 0, head, sr.w, sr.h - head)) {
+    for (const t of squarify(ROWS.filter(r => r.sec === sr.i).map(r => ({ ...r, v: r.mcap || 0.5 })), 0, head, sr.w, sr.h - head)) {
       const val = metric === "score" ? t.score : metric === "chg" ? t.chg : t.gap;
       const fs = clip(Math.min(t.w / (t.s.length * 0.72 + 0.6), t.h * 0.38), 0, 22);
       const lab = t.w >= 26 && t.h >= 16 && fs >= 7.5, showV = lab && t.h >= fs * 2.6 && t.w >= 40;
@@ -506,7 +507,7 @@ function renderTreemap() {
   }
   el.innerHTML = html;
   const L = metric === "score" ? ["Edge 20", "80"] : metric === "chg" ? ["−3%", "+3%"] : ["−2.5%", "+2.5%"];
-  lg.innerHTML = `<span>${L[0]}</span><span class="grad"></span><span>${L[1]}</span><span style="margin-left:8px">Tiles sized by market cap · ${metric === "gap" ? (moveWord() === "Pre-market" ? "grey = no pre-market trade yet" : moveWord().toLowerCase() + " move") : metric === "chg" ? (isRegular() ? "today's session" : "last completed session") : "UHE stock edge score"}</span>${SP.asOf ? `<span style="margin-left:auto">Scanned ${fmtT(new Date(SP.asOf), UK)} UK</span>` : ""}`;
+  lg.innerHTML = `<span>${L[0]}</span><span class="grad"></span><span>${L[1]}</span><span style="margin-left:8px">Tiles sized by market cap${ROWS.length < SP.rows.length ? ` · largest ${ROWS.length} of ${SP.rows.length.toLocaleString()} shown` : ""} · ${metric === "gap" ? (moveWord() === "Pre-market" ? "grey = no pre-market trade yet" : moveWord().toLowerCase() + " move") : metric === "chg" ? (isRegular() ? "today's session" : "last completed session") : "UHE stock edge score"}</span>${SP.asOf ? `<span style="margin-left:auto">Scanned ${fmtT(new Date(SP.asOf), UK)} UK</span>` : ""}`;
 }
 function fmtBn(m) { return !isNum(m) ? "—" : m >= 1000 ? (m / 1000).toFixed(1) + "B" : Math.round(m) + "M"; }
 function srow(r, mode) {
@@ -540,8 +541,8 @@ function renderSpEarn() {
   const days = [...new Set(er.map(e => e.d))].sort();
   el.innerHTML = `<div class="eyebrow">${uName()} earnings · next 7 days</div>` + days.map(d => `<div class="erday"><h4>${esc(fmtDay(d, { weekday: "long", day: "numeric", month: "short" }))}</h4><div class="erchips">${er.filter(e => e.d === d).sort((a, b) => (b.mcap || 0) - (a.mcap || 0)).map(e => `<span class="erchip ${e.mcap >= 100 ? "big" : ""}" data-s="${esc(e.s)}" role="button" tabindex="0" title="Market cap $${Math.round(e.mcap)}B${e.est ? " · date estimated" : ""}">${esc(e.s)}<small>${e.t === "BMO" ? "pre-open" : e.t === "AMC" ? "after close" : "in session"}</small></span>`).join("")}</div></div>`).join("") + `<p class="note">Pre-open reports hit before the 14:30 UK open; after-close reports gap the next morning.</p>`;
 }
-S.universe = ["sp", "ndx", "all"].includes(store.get("uhe.univ", "sp")) ? store.get("uhe.univ", "sp") : "sp";
-const uName = () => S.universe === "ndx" ? "Nasdaq-100" : S.universe === "all" ? "S&amp;P 500 + Nasdaq-100" : "S&amp;P 500";
+S.universe = ["sp", "ndx", "nasdaq", "all"].includes(store.get("uhe.univ", "sp")) ? store.get("uhe.univ", "sp") : "sp";
+const uName = () => ({ ndx: "Nasdaq-100", nasdaq: "All Nasdaq", all: "S&amp;P 500 + Nasdaq" }[S.universe] || "S&amp;P 500");
 function setUniverse(u) {
   S.universe = u; store.set("uhe.univ", u);
   $$("#univTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.u === u)));
@@ -551,7 +552,8 @@ function setUniverse(u) {
 function renderScanner() {
   $$("#univTabs button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.u === S.universe)));
   $("#spTitle").innerHTML = `${uName()} scanner`;
-  const nd = $("#univTabs [data-u=ndx]"), al = $("#univTabs [data-u=all]"); const has = !S.SP || S.SP.hasNdx; nd.disabled = al.disabled = !has; nd.title = has ? "" : "Nasdaq-100 loads after the next data-engine run"; renderBreadth(); renderTreemap(); renderSpLists(); renderSecBoard(); renderSpEarn(); }
+  const ready = { ndx: !S.SP || S.SP.hasNdx, nasdaq: !S.SP || S.SP.hasNasdaq, all: !S.SP || S.SP.hasNdx };
+  $$("#univTabs button").forEach(b => { const ok = ready[b.dataset.u] !== false; b.disabled = !ok; b.title = ok ? "" : "Loads after the next data-engine run"; }); renderBreadth(); renderTreemap(); renderSpLists(); renderSecBoard(); renderSpEarn(); }
 function stockWhy(comp, b) {
   const sign = b === "long" ? 1 : -1;
   const top = SP_COMP.map(([k, n]) => [n.toLowerCase(), (comp[k] || 0) * SP_W[k] * sign]).filter(([, v]) => v > 1).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([n]) => n);
@@ -588,7 +590,8 @@ function renderStockDrawer() {
   } else {
     kv = `<div><span>${isRegular() ? "Today" : "Last session"}</span><b class="${cls(r.chg)}">${fpct(r.chg)}</b></div><div><span>${esc(moveWord())}</span><b class="${cls(r.gap)}">${isNum(r.gap) ? fpct(r.gap) : "—"}</b></div><div><span>RSI 14</span><b>${r.rsi ?? "—"}</b></div><div><span>ATR %</span><b>${isNum(r.atrPct) ? r.atrPct.toFixed(1) + "%" : "—"}</b></div><div><span>Rel. volume</span><b>${isNum(r.rvol) ? r.rvol.toFixed(2) + "×" : "—"}</b></div><div><span>Market cap</span><b>$${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}</b></div>`;
   }
-  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · ${r.u === "N" ? "Nasdaq-100" : r.u === "SN" ? "S&amp;P 500 · Nasdaq-100" : "S&amp;P 500"}</div><div class="sym" id="drSym">${esc(r.s)} ${tickBtn(r.s, true)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
+  const mu = r.u || (S.SP.by[r.s] && S.SP.by[r.s].u) || "S", memb = [mu.includes("S") && "S&amp;P 500", mu.includes("N") && "Nasdaq-100", mu === "Q" && "Nasdaq"].filter(Boolean).join(" · ") || "S&amp;P 500";
+  $("#drHead").innerHTML = `<div class="dr-head"><div><div class="eyebrow">${esc(sect)} · ${memb}</div><div class="sym" id="drSym">${esc(r.s)} ${tickBtn(r.s, true)}</div><div class="sym-n">${esc(r.name || "")}${r.mcap ? ` · $${r.mcap >= 1000 ? (r.mcap / 1000).toFixed(2) + "T" : Math.round(r.mcap) + "B"}` : ""}</div><div class="dr-px">${isNum(r.px) ? fp(r.px, 2) + " " : ""}<span class="${cls(r.chg)}">${fpct(r.chg)}</span>${isNum(r.gap) && !isRegular() ? ` <span class="muted" style="font-size:13px">· ${esc(moveWord().toLowerCase())} ${isNum(r.ext) ? fp(r.ext, 2) + " " : ""}<span class="${cls(r.gap)}">${fpct(r.gap)}</span></span>` : ""}</div></div></div>`;
   $("#drBody").innerHTML = `<div class="dsec"><div class="big-arc">${arc(r.score, b, 150, 92, true)}<div>${pill(b)}${r.er ? ` <span class="pill warn">Earnings ${esc(erLabel(r.er))}</span>` : ""}<p style="margin-top:8px">${b === "neutral" ? "No clear edge. Trade it only if it breaks the prior range with volume." : `Leaning ${b}${stockWhy(comp, b)}.`}</p></div></div></div>
     ${full ? `<div class="dsec"><h3>Why this score</h3><div class="fx">${fx}</div></div>` : ""}${plan}${ladder}
     <div class="dsec"><h3>Stats</h3><div class="kv">${kv}</div>${full ? "" : `<p class="note">Full levels and the opening plan load for the in-play and top-ranked names.</p>`}<p class="note">Scanned ${SP.asOf ? fmtT(new Date(SP.asOf), UK) + " UK" : "—"}; the scan refreshes every minute. The chart above streams live.</p></div>`;

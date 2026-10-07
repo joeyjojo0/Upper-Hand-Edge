@@ -50,9 +50,12 @@ function scanLive() {
   }
   const NDXS = new Set("AAPL MSFT NVDA AMZN GOOGL GOOG META AVGO TSLA COST NFLX PLTR AMD CSCO TMUS LIN INTU PEP ISRG TXN QCOM BKNG AMGN ADBE AMAT HON GILD CMCSA MU LRCX PANW ADP KLAC APP INTC SNPS CRWD CEG ADI CDNS VRTX ABNB DASH SBUX ORLY CTAS MDLZ MAR FTNT REGN PYPL WDAY CSX ADSK AEP NXPI ROP AXON PCAR MNST IDXX CHTR FAST KDP ROST PAYX DDOG EXC CPRT TTWO VRSK XEL BKR FANG EA CTSH KHC ODFL GEHC MCHP CSGP LULU DXCM CDW ON WBD BIIB".split(" "));
   const extra = ["ASML|0|300|1.2|0.8|66|61|2.1|1.2||NASDAQ|N", "ARM|0|160|-2.1|-1.4|35|44|4.2|1.6||NASDAQ|N", "SHOP|0|190|0.9|1.1|60|58|3.1|1.1||NASDAQ|N", "MELI|2|110|0.4|0.3|55|52|2.5|0.9||NASDAQ|N", "PDD|2|170|-0.8|-0.5|42|47|3.0|1.0||NASDAQ|N", "MSTR|5|90|3.4|2.2|71|69|6.1|2.3||NASDAQ|N"];
-  const map = MAP.map(a => a.join("|") + "|" + (NDXS.has(a[0]) ? "SN" : "S")).concat(extra);
+  const extraQ = extra.map(l => l + "Q");
+  if (!scanLive.small) { let sd = 99; const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; }; scanLive.small = Array.from({ length: 1400 }, (_, i) => { const sym = "X" + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26) % 26) + String.fromCharCode(65 + Math.floor(i / 676)); return [sym, 11, r2(0.05 + r() * r() * 8, 2), r2((r() - 0.5) * 8), r2((r() - 0.5) * 5), Math.round(15 + r() * 70), Math.round(30 + r() * 40), r2(2 + r() * 6), r2(0.4 + r() * 2), "", "NASDAQ", "Q"].join("|"); }); }
+  const map = MAP.map(a => a.join("|") + "|" + (NDXS.has(a[0]) ? "SNQ" : a[10] === "NASDAQ" ? "SQ" : "S")).concat(extraQ, scanLive.small);
   const nd = { breadth: { ...scan.breadth, n: 100 }, sec: scan.sec, play: scan.play.slice(0, 8), longs: scan.longs.slice(0, 8), shorts: scan.shorts.slice(0, 8), er: scan.er };
-  return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", map, ndx: nd };
+  const nq = { breadth: { ...scan.breadth, n: map.filter(l => l.split("|")[11].includes("Q")).length }, sec: scan.sec.concat([{ name: "Other Nasdaq", n: 1400, chg: 0.4, gap: 0.2, a50: 48, score: 51, best: "XAAA", worst: "XBAA", mcap: 2100 }]), play: scan.play.slice(0, 10), longs: scan.longs.slice(0, 10), shorts: scan.shorts.slice(0, 10), er: scan.er };
+  return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", sectors: (scan.sectors || []).length >= 12 ? scan.sectors : (scan.sectors || []).concat(["Other Nasdaq"]), map, ndx: nd, nasdaq: nq };
 }
 export async function handle(name) {
   switch (name) {

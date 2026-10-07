@@ -329,8 +329,8 @@ export async function calendar(CUR = ["USD", "GBP", "EUR", "JPY", "AUD", "CAD", 
 }
 
 /* ------------------------------------------------------------------ S&P 500 scanner */
-export const SECTORS = ["Information Technology", "Communication Services", "Consumer Discretionary", "Consumer Staples", "Health Care", "Financials", "Industrials", "Energy", "Materials", "Utilities", "Real Estate"];
-export const SECTOR_SHORT = ["Tech", "Comms", "Discretionary", "Staples", "Health care", "Financials", "Industrials", "Energy", "Materials", "Utilities", "Real estate"];
+export const SECTORS = ["Information Technology", "Communication Services", "Consumer Discretionary", "Consumer Staples", "Health Care", "Financials", "Industrials", "Energy", "Materials", "Utilities", "Real Estate", "Other"];
+export const SECTOR_SHORT = ["Tech", "Comms", "Discretionary", "Staples", "Health care", "Financials", "Industrials", "Energy", "Materials", "Utilities", "Real estate", "Other Nasdaq"];
 let LIST = null;
 export async function sp500List() {
   if (LIST && Date.now() - LIST.at < 12 * 3600e3) return LIST.rows;
@@ -368,10 +368,37 @@ export async function ndxList() {
   return rows;
 }
 // Combined scan universe: S&P 500 plus Nasdaq-100, each row tagged with membership ("S", "N" or "SN").
+// Every Nasdaq-listed common stock, from Nasdaq Trader's official symbol directory (refreshed nightly).
+// Drops ETFs, test issues, warrants, rights, units, preferreds and notes, and shares in delinquency.
+let NQ = null;
+export async function nasdaqList() {
+  if (NQ && Date.now() - NQ.at < 12 * 3600e3) return NQ.rows;
+  const r = await fetch("https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt", { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error("Nasdaq symbol directory HTTP " + r.status);
+  const lines = (await r.text()).trim().split(/\r?\n/), head = lines[0].split("|");
+  const iS = head.indexOf("Symbol"), iN = head.indexOf("Security Name"), iT = head.indexOf("Test Issue"), iE = head.indexOf("ETF"), iF = head.indexOf("Financial Status");
+  const junk = /warrant|right|unit|preferred|depositary share|notes? due|debenture|subordinated|% |percent|trust preferred|contingent value/i;
+  const rows = [];
+  for (const l of lines.slice(1)) {
+    const p = l.split("|"); const sym = (p[iS] || "").trim();
+    if (!sym || /^File Creation/.test(sym) || p[iT] === "Y" || p[iE] === "Y" || !/^[A-Z]{1,5}$/.test(sym)) continue;
+    if (iF >= 0 && /[DEH]/.test(p[iF] || "")) continue;
+    const name = (p[iN] || "").replace(/ - Class [A-Z].*| - Common Stock.*| Common Stock.*| - Ordinary Shares.*| Ordinary Shares.*| - American Depositary Shares.*/i, "").trim();
+    if (junk.test(p[iN] || "") && !/common|ordinary|american depositary/i.test(p[iN] || "")) continue;
+    if (sym.length === 5 && /[WRU]$/.test(sym)) continue;
+    rows.push({ s: sym, y: sym, name: name.slice(0, 30), sec: 11 });
+  }
+  if (rows.length < 1000) throw new Error("Nasdaq symbol directory looks incomplete (" + rows.length + ")");
+  NQ = { rows, at: Date.now() };
+  return rows;
+}
+// Scan universe: S&P 500 + Nasdaq-100 + every Nasdaq-listed stock. Membership letters per row: S, N, Q.
 export async function universe() {
-  const [sp, nd] = await Promise.all([sp500List(), ndxList().catch(() => [])]);
+  const [sp, nd, nq] = await Promise.all([sp500List(), ndxList().catch(() => []), nasdaqList().catch(() => [])]);
   const by = new Map(sp.map(r => [r.s, { ...r, u: "S" }]));
-  for (const r of nd) { const x = by.get(r.s); if (x) x.u = "SN"; else by.set(r.s, { ...r, u: "N" }); }
+  for (const r of nd) { const x = by.get(r.s); if (x) x.u += "N"; else by.set(r.s, { ...r, u: "N" }); }
+  for (const r of nq) { const x = by.get(r.s); if (x) { if (!x.u.includes("Q")) x.u += "Q"; } else by.set(r.s, { ...r, u: "Q" }); }
+  for (const x of by.values()) if (x.u.includes("N") && !x.u.includes("Q")) x.u += "Q";
   return [...by.values()];
 }
 
@@ -395,13 +422,13 @@ export async function scanHist() {
     // drop today's bar while the regular session is still running
     if (b.length && td && et(b[b.length - 1].t).d === now.d && now.m < 960) b.pop();
     return b;
-  }, PROXY_BASE ? 8 : 24);
+  }, PROXY_BASE ? 12 : 24);
   const spy = hist[0] && !hist[0].__err ? hist[0] : [];
   const sc = spy.map(x => x.c), sn = sc.length;
   const spy5 = sn > 6 ? (sc[sn - 1] / sc[sn - 6] - 1) * 100 : 0, spy20 = sn > 21 ? (sc[sn - 1] / sc[sn - 21] - 1) * 100 : 0;
   const rows = [];
   list.forEach((x, i) => {
-    const b = hist[i + 1]; if (!b || b.__err || b.length < 25) return;
+    const b = hist[i + 1]; if (!b || b.__err || b.length < 25 || !(b[b.length - 1].c > 0)) return;
     const c = b.map(z => z.c), n = c.length, last = b[n - 1], A = atr(b);
     const adv20 = avg(b.slice(-21, -1).map(z => z.v));
     rows.push({ s: x.s, y: x.y, name: x.name, sec: x.sec, u: x.u || "S", atr: rd(A, 3), rsi: rd(rsi(c), 0), sma20: rd(avg(c.slice(-20)), 3), hi20: rd(Math.max(...b.slice(-20).map(z => z.h)), 3), lo20: rd(Math.min(...b.slice(-20).map(z => z.l)), 3),
@@ -420,7 +447,9 @@ export async function scanHistCached(maxAgeMs = 3 * 3600e3) {
 
 const SCAN_W = { trend: 20, momentum: 10, rs: 20, clv: 10, gap: 25, thrust: 15 };
 export async function scanLive(H) {
-  const { q } = await quoteMap(H.rows.map(r => r.y));
+  // Nasdaq-only names trading under ~$2M a day or under $1 are skipped to keep the live scan fast and meaningful.
+  const LIVE = H.rows.filter(h => h.u !== "Q" || (h.adv20 * h.pdc >= 2e6 && h.pdc >= 1));
+  const { q } = await quoteMap(LIVE.map(r => r.y));
   const nowET = et(Date.now() / 1000).d, horizon = new Date(Date.now() + 8 * 86400000).toISOString().slice(0, 10);
   let state = "CLOSED";
   const rows = [];
@@ -454,20 +483,20 @@ export async function scanLive(H) {
   const pctOf = (a, f) => a.length ? Math.round(a.filter(f).length / a.length * 1000) / 10 : null;
   const capw = (a, k) => { let s = 0, w = 0; for (const r of a) if (r[k] != null && r.mcap) { s += r[k] * r.mcap; w += r.mcap; } return w ? rd(s / w) : null; };
   const slim = r => { const { sma20, ...rest } = r; return rest; };
-  const summarize = all => {
+  const summarize = (all, minDv = 150) => {
     const gaps = all.filter(r => r.gap != null).map(r => r.gap).sort((a, b) => a - b);
     const breadth = { n: all.length, adv: all.filter(r => r.chg > 0).length, dec: all.filter(r => r.chg < 0).length, a20: pctOf(all, r => r.px > r.sma20), a50: pctOf(all, r => r.px > r.sma50), a200: pctOf(all, r => r.px > r.sma200),
       nh20: all.filter(r => r.px >= r.hi20 * 0.995).length, nl20: all.filter(r => r.px <= r.lo20 * 1.005).length, gapUp: all.filter(r => r.gap >= 1).length, gapDn: all.filter(r => r.gap <= -1).length,
       gapMed: gaps.length ? rd(gaps[Math.floor(gaps.length / 2)]) : null, gapCap: capw(all, "gap"), chgCap: capw(all, "chg"), state, spy5: H.spy5, spy20: H.spy20 };
     const sec = SECTOR_SHORT.map((name, i) => { const a = all.filter(r => r.sec === i), s = a.slice().sort((x, y) => y.score - x.score); return { name, n: a.length, chg: capw(a, "chg"), gap: capw(a, "gap"), a50: pctOf(a, r => r.px > r.sma50), score: a.length ? Math.round(avg(a.map(r => r.score))) : null, best: s[0] ? s[0].s : null, worst: s[s.length - 1] ? s[s.length - 1].s : null, mcap: Math.round(a.reduce((t, r) => t + (r.mcap || 0), 0)) }; });
-    const liquid = all.filter(r => r.dv >= 150);
+    const liquid = all.filter(r => r.dv >= minDv);
     const play = liquid.filter(r => r.gap != null).sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap)).slice(0, 15).map(slim);
     const longs = liquid.filter(r => r.score >= 62).sort((a, b) => b.score - a.score).slice(0, 15).map(slim);
     const shorts = liquid.filter(r => r.score <= 38).sort((a, b) => a.score - b.score).slice(0, 15).map(slim);
     const er = all.filter(r => r.er).sort((a, b) => (a.er.d + a.er.t).localeCompare(b.er.d + b.er.t)).map(r => ({ s: r.s, d: r.er.d, t: r.er.t, est: r.er.est, mcap: r.mcap }));
     return { breadth, sec, play, longs, shorts, er };
   };
-  const SP = summarize(rows.filter(r => r.u.includes("S"))), ND = summarize(rows.filter(r => r.u.includes("N")));
+  const SP = summarize(rows.filter(r => r.u.includes("S"))), ND = summarize(rows.filter(r => r.u.includes("N"))), NQ_ = summarize(rows.filter(r => r.u.includes("Q")), 20);
   const { breadth, sec, play, longs, shorts, er } = SP;
   const map = rows.map(r => [r.s, r.sec, r.mcap, r.chg, r.gap == null ? "" : r.gap, r.score, r.rsi == null ? "" : r.rsi, r.atrPct == null ? "" : r.atrPct, r.rvol == null ? "" : r.rvol, r.er ? r.er.d.slice(5) + " " + r.er.t : "", r.tv, r.u].join("|"));
   const moveLabel = /PRE/.test(state) ? "Pre-market" : /REGULAR/.test(state) ? "Today" : "After hours";
@@ -476,7 +505,7 @@ export async function scanLive(H) {
     return [r.s, { px: r.px, chg: r.chg, gap: r.gap, ext: r.ext, rsi: r.rsi, rsiP: h.rsiP, stK: h.stK, stD: h.stD, stKp: h.stKp, macdH: h.macdH, macdHp: h.macdHp,
       rvol: r.rvol, vol: h.vol, adv20: h.adv20, volNow: x.regularMarketVolume || null, avg10: x.averageDailyVolume10Day || null, sma20: r.sma20 ?? h.sma20, sma50: r.sma50, sma200: r.sma200,
       u: r.u, atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
-  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, ndx: ND, deep };
+  return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, ndx: ND, nasdaq: NQ_, deep };
 }
 
 /* ------------------------------------------------------------------ options interest */
