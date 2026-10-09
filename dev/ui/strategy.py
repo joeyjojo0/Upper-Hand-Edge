@@ -20,6 +20,14 @@ async def main():
             r["overflow"] = await pg.evaluate("document.documentElement.scrollWidth > innerWidth + 1")
             r["navActive"] = await pg.locator("nav.jump a[aria-current=page]").inner_text()
             await pg.screenshot(path=f"{OUT}/strat-{name}.png", full_page=False)
+            r["pulse"] = {"wire": await pg.locator(".pl-wire li").count(), "chips": await pg.locator(".pchip").count(), "desk": await pg.locator(".pl-desk li").count()}
+            await pg.locator("#pulse").screenshot(path=f"{OUT}/strat-{name}-pulse.png")
+            await pg.click(".pchip:not(.off) >> nth=0"); await pg.wait_for_timeout(500)
+            r["chipJump"] = {"q": await pg.input_value("#q"), "open": await pg.locator(".st-detail").count()}
+            r["filings"] = await pg.locator(".dt-sec-list li").count()
+            r["retail"] = await pg.locator(".st-detail h4", has_text="Retail crowd").count()
+            await pg.locator(".st-detail").first.screenshot(path=f"{OUT}/strat-{name}-chipdetail.png")
+            await pg.fill("#q", ""); await pg.dispatch_event("#q", "input"); await pg.select_option("#minPass", "5"); await pg.wait_for_timeout(300)
             await pg.click(".st-row:not(.st-head) .st-main >> nth=0"); await pg.wait_for_timeout(300)
             r["detail"] = await pg.locator(".st-detail .dt-c").count()
             await pg.screenshot(path=f"{OUT}/strat-{name}-detail.png", full_page=False)

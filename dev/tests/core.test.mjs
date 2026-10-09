@@ -48,6 +48,12 @@ globalThis.fetch = async (url, opts = {}) => {
       recommendationTrend: { trend: [{ period: "0m", strongBuy: 10, buy: 12, hold: 6, sell: 1, strongSell: 1 }] }, calendarEvents: { earnings: { earningsDate: [{ raw: NOW + 6 * DAY }] } },
       fundOwnership: { ownershipList: [{ organization: "Vanguard Total Stock Market Index Fund", pctHeld: { raw: 0.031 } }, { organization: "SPDR S&P 500 ETF Trust", pctHeld: { raw: 0.012 } }, { organization: "Fidelity Contrafund", pctHeld: { raw: 0.01 } }] } }] } }); }
   if (url.includes("/v1/finance/search")) return json({ news: [{ title: "Acme beats estimates and raises guidance", publisher: "Wire", providerPublishTime: NOW - 3600, link: "https://x/1" }, { title: "Acme faces probe over accounting", publisher: "Wire", providerPublishTime: NOW - 4 * DAY }, { title: "Acme stock: what to know", publisher: "Blog", providerPublishTime: NOW - 7200 }] });
+  if (url.includes("sec.gov/files/company_tickers.json")) return json({ 0: { cik_str: 320193, ticker: "AAA", title: "Alpha" }, 1: { cik_str: 1067983, ticker: "BRK-B", title: "Berkshire" } });
+  if (url.includes("data.sec.gov/submissions/CIK0000320193.json")) { const d = n => new Date(Date.now() - n * DAY * 1000).toISOString().slice(0, 10);
+    return json({ filings: { recent: { form: ["8-K", "4", "424B5", "SC 13D", "10-Q"], filingDate: [d(0), d(1), d(2), d(3), d(30)], items: ["2.02,9.01", "", "", "", ""], accessionNumber: ["0000320193-26-000001", "a", "b", "c", "d"], primaryDocument: ["x8k.htm", "f4.xml", "p.htm", "s.htm", "q.htm"], acceptanceDateTime: [new Date().toISOString(), "", "", "", ""] } } }); }
+  if (url.includes("finnhub.io/api/v1/news")) return json([{ headline: "Stocks rally as yields ease", source: "CNBC", datetime: NOW - 600, url: "https://x/w1", related: "" }, { headline: "Oil slumps on supply", source: "Reuters", datetime: NOW - 1200, url: "https://x/w2", related: "" }]);
+  if (url.includes("apewisdom.io")) return json({ count: 3, pages: 1, current_page: 1, results: [{ rank: 1, ticker: "AAA", name: "Alpha", mentions: "120", upvotes: "900", rank_24h_ago: "5", mentions_24h_ago: "30" }, { rank: 2, ticker: "BBB", name: "Beta", mentions: "40", upvotes: "100", rank_24h_ago: "1", mentions_24h_ago: "80" }, { rank: 3, ticker: "ZZZ", name: "Z", mentions: "3", upvotes: "1", rank_24h_ago: "9", mentions_24h_ago: "1" }] });
+  if (url.includes("stocktwits") && url.includes("trending")) return json({ symbols: [{ symbol: "AAA", title: "Alpha Inc", watchlist_count: 5000 }, { symbol: "QQQQ", title: "Q", watchlist_count: 10 }] });
   if (url.includes("stocktwits")) return json({ symbol: { watchlist_count: 1234 }, messages: [1, 2, 3, 4, 5, 6, 7].map(i => ({ id: i, entities: { sentiment: i <= 5 ? { basic: "Bullish" } : i === 6 ? { basic: "Bearish" } : null } })) });
   if (url.includes("cdn.finra.org")) { const rows = ["Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market"]; for (const s of ["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT", "HYG", "XLF", "XLK", "SMH"]) rows.push(`x|${s}|${Math.round(5e5 + rnd() * 1e5)}|0|1000000|B,Q,N`); return new Response(rows.join("\n") + "\n" + "#".repeat(1200)); }
   if (url.includes("publicreporting.cftc.gov")) { const out = []; for (let w = 0; w < 60; w++) for (const code of Object.values(core.COT_CODES)) out.push({ report_date_as_yyyy_mm_dd: new Date((NOW - (60 - w) * 7 * DAY) * 1000).toISOString().slice(0, 10) + "T00:00:00.000", cftc_contract_market_code: code, market_and_exchange_names: "TEST - CME", noncomm_positions_long_all: String(1000 + w * 10), noncomm_positions_short_all: "900", open_interest_all: "5000" }); return json(out); }
@@ -120,10 +126,20 @@ test("strategy data: RSI history, KST, fundamentals, news", async () => {
   const F = await core.fundamentalsFor(["AAA", "FAIL"]); const f = F.stocks.AAA;
   assert.equal(F.fails, 1); assert.equal(f.rm, 1.8); assert.equal(f.na, 30); assert.equal(f.up, 15); assert.equal(f.dy, 3.1); assert.equal(f.inst, 72);
   assert.equal(f.etfN, 2, "Vanguard index fund + SPDR ETF, not Contrafund"); assert.equal(f.sb, 10); assert.ok(f.erd);
-  const N = await core.newsFor(["AAA"]); const n = N.stocks.AAA;
+  process.env.FINNHUB_KEY = "test"; const N = await core.newsFor(["AAA"]); const n = N.stocks.AAA;
   assert.equal(n.n48, 2); assert.equal(n.tone48, 1); assert.equal(n.n7, 3); assert.equal(n.tone7, 0); assert.equal(n.items[0].s, 1);
   assert.deepEqual(n.st, { bull: 5, bear: 1, n: 7, watch: 1234 }); assert.equal(N.stocktwits, true);
   assert.equal(core.headlineTone("Shares plunge after downgrade"), -1); assert.equal(core.headlineTone("Record quarter"), 1);
+  // SEC EDGAR: earnings 8-K, insider Form 4, share offering (dilution) and a 13D stake; the 30-day-old 10-Q is outside the window
+  assert.equal(N.sec, true); assert.equal(n.sec.length, 4); assert.equal(n.sec[0].k, "earn"); assert.match(n.sec[0].l, /Earnings release/);
+  assert.equal(n.sec[0].u, "https://www.sec.gov/Archives/edgar/data/320193/000032019326000001/x8k.htm");
+  assert.deepEqual(n.secf, { dil: true, red: false, act: true, ins: 1, n: 3 });
+  assert.equal(core.pubTier("Reuters"), "pro"); assert.equal(core.pubTier("Motley Fool"), "op"); assert.equal(core.pubTier("Some Blog"), "");
+  assert.equal(core.classifyFiling("8-K", "4.02").k, "red"); assert.equal(core.classifyFiling("S-3ASR").k, "dil"); assert.equal(core.classifyFiling("DEF 14A"), null);
+  const P = await core.pulse();
+  assert.equal(P.wire.length, 2); assert.equal(P.wire[0].src, "CNBC"); assert.deepEqual(P.reddit.AAA, [1, 120, 30, 900, 5]);
+  assert.deepEqual(P.redditTop.map(x => x.s), ["AAA", "BBB"], "ZZZ has too few mentions"); assert.equal(P.redditTop[0].x, 4);
+  assert.equal(P.stTrend[0].s, "AAA");
 });
 
 test("finra(), cot(), calendar() parse the public files", async () => {

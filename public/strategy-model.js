@@ -39,13 +39,26 @@ function analysts(F, R, needUpside) {
   const pass = F.rm <= R.recMax && (F.na || 0) >= R.analystsMin && (!needUpside || (F.up != null && F.up >= R.upsideMin));
   return { pass, val: `${word} ${F.rm.toFixed(1)} · ${F.na || 0} analysts${F.up != null ? ` · target ${F.up >= 0 ? "+" : "−"}${Math.abs(F.up).toFixed(Math.abs(F.up) < 10 ? 1 : 0)}%` : ""}` };
 }
+// N = per-stock news (headlines, StockTwits, SEC filings) merged with Reddit counts (N.rd = [rank, mentions, mentions24hAgo, upvotes, rank24hAgo]).
+export function redditBuzz(rd) {
+  if (!Array.isArray(rd)) return null;
+  const [rank, m, m24] = rd, x = m / Math.max(1, m24);
+  return { rank, m, m24, x, spike: m >= 10 && x >= 1.5 };
+}
+const sgn = x => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x);
 function newsCheck(N, R) {
   if (!N) return { pass: null, val: "Not on the news shortlist" };
   const st = N.st && (N.st.bull + N.st.bear) >= 5 ? Math.round(N.st.bull / (N.st.bull + N.st.bear) * 100) : null;
-  const pos = N.tone48 > 0 || (st != null && st >= R.stBull), neg = N.tone48 < 0 || (st != null && st < 100 - R.stBull);
-  const bits = [`${N.n48} headline${N.n48 === 1 ? "" : "s"} in 48h${N.n48 ? ` (tone ${N.tone48 > 0 ? "+" : ""}${N.tone48})` : ""}`];
+  const rb = redditBuzz(N.rd), f = N.secf || {}, tone = N.tone48 || 0;
+  const pos = !!(tone > 0 || (st != null && st >= R.stBull) || (rb && rb.spike) || f.act);
+  const neg = !!(tone < 0 || (st != null && st < 100 - R.stBull) || f.dil || f.red);
+  const bits = [];
+  if (N.n48 != null) bits.push(`${N.n48} headline${N.n48 === 1 ? "" : "s"} in 48h${N.pro48 ? ` (${N.pro48} major wire${N.pro48 > 1 ? "s" : ""})` : ""}${N.n48 ? ` · tone ${sgn(tone)}` : ""}`);
+  if (f.dil) bits.push("⚠ share offering filed"); if (f.red) bits.push("⚠ red-flag 8-K");
+  if (f.act) bits.push("13D stake filed");
+  if (rb) bits.push(`Reddit #${rb.rank} · ${rb.m} mentions${rb.m24 ? ` (${rb.x.toFixed(1)}× yesterday)` : ""}`);
   if (st != null) bits.push(`StockTwits ${st}% bullish`);
-  return { pass: pos && !neg, val: bits.join(" · ") };
+  return { pass: N.n48 == null && !rb && st == null ? null : pos && !neg, val: bits.join(" · ") || "—" };
 }
 
 // Day-trade plan: buy at the 14:30 open (or the first dip that reclaims), take 1–3%, but sell before the previous high.
@@ -82,9 +95,9 @@ export function evalLong(d, O, F, N, R, now = new Date()) {
   const dd = daysTo(F && F.erd, now);
   if (dd == null) c.earn = { pass: null, val: "No earnings date yet" };
   else {
-    const tone = N ? N.tone7 : null, toneTxt = tone == null ? "" : ` · news tone ${tone > 0 ? "+" : ""}${tone} this week`;
+    const tone = N && N.tone7 != null ? N.tone7 : null, toneTxt = (tone == null ? "" : ` · news tone ${tone > 0 ? "+" : ""}${tone} this week`) + (N && N.secf && N.secf.dil ? " · ⚠ share offering" : "");
     const inWin = dd >= R.erFrom && dd <= R.erTo;
-    c.earn = { pass: inWin && (tone == null || tone >= 0), val: dd < 0 ? `Reported ${-dd}d ago` : inWin ? `Earnings in ${dd}d (${F.erd.slice(5)}) · buying window${toneTxt}` : dd < R.erFrom ? `Earnings in ${dd}d · too close` : `Earnings in ${dd}d · window opens in ${dd - R.erTo}d` };
+    c.earn = { pass: inWin && (tone == null || tone >= 0) && !(N && N.secf && (N.secf.dil || N.secf.red)), val: dd < 0 ? `Reported ${-dd}d ago` : inWin ? `Earnings in ${dd}d (${F.erd.slice(5)}) · buying window${toneTxt}` : dd < R.erFrom ? `Earnings in ${dd}d · too close` : `Earnings in ${dd}d · window opens in ${dd - R.erTo}d` };
   }
   c.etf = holders(F, R);
   c.opts = O && (O.coi || O.poi || O.cv || O.pv) ? (() => { const useOI = (O.coi || 0) + (O.poi || 0) > 0, a = useOI ? O.coi : O.cv, b = useOI ? O.poi : O.pv; return { pass: a > b, val: `${useOI ? "Open interest" : "Volume"} ${(a || 0).toLocaleString("en-US")} calls vs ${(b || 0).toLocaleString("en-US")} puts` }; })() : { pass: null, val: "No options data" };

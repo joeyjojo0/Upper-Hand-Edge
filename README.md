@@ -120,7 +120,21 @@ Plan: pre-market check at 14:00, buy the 14:30 open or the first dip that reclai
 
 Every threshold can be changed under **Rules & thresholds** (saved in your browser).
 
-Data comes from new data-engine jobs: `fund` (analysts, fund holders, dividends, earnings date; twice a day), `news` (Yahoo headlines + StockTwits for a technical shortlist; hourly, every ~20 min from 12:00–15:30 UK) and the existing `scan`, `deep` and `options` jobs. KST and 5-day RSI arrive with the next `scan-hist` run.
+### News and retail sources
+
+| Layer | Source | What it adds |
+| --- | --- | --- |
+| Primary source | **SEC EDGAR** filings (free) | 8-K events (earnings, deals, restatements, delisting notices), share offerings (S-1/S-3/424B: dilution warning), 13D/13G big stakes, Form 4 insider filings, with links to the filing |
+| Newswires | **Yahoo Finance** headlines | Reuters, Dow Jones/MarketWatch, Business Wire, GlobeNewswire, PR Newswire, Benzinga and more. Major wires count 1.5× in the tone score, opinion sites (Motley Fool, Zacks…) 0.5× |
+| Market wire | **Finnhub** general news (uses `FINNHUB_KEY`) | Market-wide headlines for the Market pulse panel |
+| Retail crowd | **Reddit** via ApeWisdom | Mention counts and 24-hour change across r/wallstreetbets, r/stocks and other stock subreddits |
+| Retail crowd | **StockTwits** | Bullish/bearish tags per stock and the trending list |
+
+The **News & retail** tick passes on positive wire tone, bullish StockTwits, a Reddit mention spike (1.5× the day before, 10+ mentions) or a new 13D stake, and fails on negative tone, bearish StockTwits, a share offering in the last 5 days or a red-flag 8-K. The Market pulse panel also links the desks pros keep open (FinancialJuice, Benzinga Pro, EDGAR latest filings, Finviz news, ApeWisdom, StockTwits).
+
+Add a GitHub secret `SEC_CONTACT` with a contact email: the SEC asks automated users to identify themselves and may block requests without it.
+
+Data comes from new data-engine jobs: `fund` (analysts, fund holders, dividends, earnings date; twice a day), `news` (headlines, SEC filings and StockTwits for a technical shortlist plus Reddit/StockTwits trending names; hourly, every ~20 min from 12:00–15:30 UK), `pulse` (market wire, Reddit, StockTwits trending; every run) and the existing `scan`, `deep` and `options` jobs. KST and 5-day RSI arrive with the next `scan-hist` run.
 
 ### Connect IC Markets (cTrader Open API)
 

@@ -93,8 +93,16 @@ export async function handle(name, req) {
       return { asOf: new Date().toISOString(), stocks: out }; }
     case "news": { const out = {}; const now = Math.floor(Date.now() / 1000); for (const line of scanLive().map.slice(0, 700)) { const sym = line.split("|")[0], t = Math.round(rnd() * 4 - 1.5);
       out[sym] = { n48: Math.round(rnd() * 5), n7: Math.round(3 + rnd() * 8), tone48: t, tone7: t + Math.round(rnd() * 2 - 1), st: rnd() < 0.7 ? { bull: Math.round(rnd() * 20), bear: Math.round(rnd() * 8), n: 30, watch: 5000 } : undefined,
-        items: [{ t: `${sym} beats estimates and raises guidance`, p: "Wire", ts: now - 3600, l: "https://example.com/" + sym, s: 1 }, { t: `What to watch in ${sym} this week`, p: "Blog", ts: now - 86400, l: "https://example.com/w", s: 0 }] }; }
+        pro48: Math.round(rnd() * 2), items: [{ t: `${sym} beats estimates and raises guidance`, p: "Business Wire", q: "pro", ts: now - 3600, l: "https://example.com/" + sym, s: 1 }, { t: `What to watch in ${sym} this week`, p: "Motley Fool", q: "op", ts: now - 86400, l: "https://example.com/w", s: 0 }],
+        sec: rnd() < 0.5 ? [{ f: "8-K", d: new Date().toISOString().slice(0, 10), k: "earn", l: "8-K: Earnings release", tone: 0, u: "https://www.sec.gov/" }, { f: "4", d: new Date().toISOString().slice(0, 10), k: "ins", l: "Insider transaction (Form 4)", tone: 0, u: "https://www.sec.gov/" }] : [],
+        secf: { dil: rnd() < 0.04, red: false, act: rnd() < 0.03, ins: 1, n: 1 } };
+      if (out[sym].secf.dil) out[sym].sec.unshift({ f: "424B5", d: new Date().toISOString().slice(0, 10), k: "dil", l: "Share offering / shelf (424B5)", tone: -1, u: "https://www.sec.gov/" }); }
       return { asOf: new Date().toISOString(), stocks: out }; }
+    case "pulse": { const syms = scanLive().map.slice(0, 400).map(l => l.split("|")[0]); const now = Math.floor(Date.now() / 1000), reddit = {};
+      syms.slice(0, 150).forEach((x, i) => { const m = Math.round(400 / (i + 1) + rnd() * 20), m24 = Math.round(m * (0.3 + rnd() * 1.4)); reddit[x] = [i + 1, m, m24, m * 7, i + 3]; });
+      const redditTop = Object.entries(reddit).filter(([, v]) => v[1] >= 15).map(([sx, v]) => ({ s: sx, rank: v[0], m: v[1], m24: v[2], x: +(v[1] / Math.max(1, v[2])).toFixed(1) })).sort((a, b) => b.x - a.x).slice(0, 15);
+      return { asOf: new Date().toISOString(), wire: ["Stocks rally as Treasury yields ease", "Oil slips as OPEC+ weighs output", "Fed's Waller: more cuts likely if jobs cool", "Chipmakers lead Nasdaq higher", "Dollar steadies ahead of CPI", "Retail sales beat forecasts", "Bank stocks fall on credit worries", "Gold hits record on rate-cut bets"].map((t, i) => ({ t, src: ["Reuters", "CNBC", "MarketWatch", "Bloomberg"][i % 4], ts: now - i * 900, u: "https://example.com/" + i, s: /rally|higher|beat|record/.test(t) ? 1 : /fall|slips/.test(t) ? -1 : 0 })),
+        reddit, redditTop, stTrend: syms.slice(5, 17).map(x => ({ s: x, t: x + " Inc", w: 1000 })).concat([{ s: "GME", t: "GameStop", w: 9000 }]), errors: [] }; }
     case "trade": return mockTrade(req);
     case "health": return { ok: true, mode: "mock" };
     default: return null;

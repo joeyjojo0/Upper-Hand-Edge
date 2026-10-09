@@ -24,6 +24,17 @@ test("day checklist: each rule can fail, missing data is neutral", () => {
   for (const k of ["rsi", "vol", "news", "etf", "trend", "opts", "analysts"]) assert.equal(m[k].pass, null, k);
 });
 
+test("news check: SEC filings and Reddit buzz", () => {
+  const base = { n48: 1, tone48: 0, pro48: 1, st: null };
+  assert.equal(evalDay(good, O, F, { ...base, rd: [8, 60, 20, 300, 30] }, R.day).news.pass, true, "Reddit mentions 3× yesterday");
+  assert.match(evalDay(good, O, F, { ...base, rd: [8, 60, 20, 300, 30] }, R.day).news.val, /Reddit #8 · 60 mentions \(3\.0× yesterday\)/);
+  assert.equal(evalDay(good, O, F, { ...base, rd: [8, 60, 55, 300, 9] }, R.day).news.pass, false, "busy but not spiking, flat tone");
+  assert.equal(evalDay(good, O, F, { ...N, secf: { dil: true } }, R.day).news.pass, false, "share offering overrides good news");
+  assert.equal(evalDay(good, O, F, { ...base, secf: { act: true } }, R.day).news.pass, true, "13D stake counts as a positive");
+  assert.equal(evalDay(good, O, F, { rd: [3, 40, 10] }, R.day).news.pass, true, "Reddit alone is enough data");
+  assert.equal(evalLong(good, O, F, { ...N, secf: { red: true } }, R.long, NOW).earn.pass, false);
+});
+
 test("day plan: 1–3% target, capped just under the previous high", () => {
   const p = dayPlan(good, R.day);
   assert.equal(p.entry, 101); assert.ok(p.capped, "2% target (103.02) is above the prior high 102.5");

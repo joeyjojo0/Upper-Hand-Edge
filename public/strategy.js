@@ -1,7 +1,7 @@
 // UHE Strategy page: Joey's day-trade and long-term checklists on every scanned stock,
 // plus a PIN-locked IC Markets (cTrader) order ticket. Data comes from the GitHub data engine (/data/*).
 import { fp, isNum, UK, NY, fmtT } from "./model.js";
-import { normRules, DAY_RULES, LONG_RULES, rank, dayPhase } from "./strategy-model.js";
+import { normRules, DAY_RULES, LONG_RULES, rank, dayPhase, redditBuzz } from "./strategy-model.js";
 
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,7 +31,8 @@ const FEEDS = {
   deep: { url: "/data/deep.json", every: 120e3, name: "Scan" },
   options: { url: "/data/options.json", every: 300e3, name: "Options" },
   fund: { url: "/data/fund.json", every: 1800e3, name: "Analysts & holders" },
-  news: { url: "/data/news.json", every: 300e3, name: "News" }
+  news: { url: "/data/news.json", every: 300e3, name: "News" },
+  pulse: { url: "/data/pulse.json", every: 120e3, name: "Pulse" }
 };
 async function load(k) {
   try {
@@ -42,7 +43,7 @@ async function load(k) {
 function renderChips() {
   $("#feedChips").innerHTML = Object.entries(FEEDS).map(([k, f]) => {
     const st = S.feeds[k], d = S.D[k], cls = st === "ok" ? "ok" : st === "stale" ? "warn" : st === "missing" ? "bad" : "";
-    const txt = st === "missing" ? (k === "fund" || k === "news" ? "after next engine run" : "not loaded") : d && d.asOf ? fmtT(new Date(d.asOf), UK) : "…";
+    const txt = st === "missing" ? (k === "fund" || k === "news" || k === "pulse" ? "after next engine run" : "not loaded") : d && d.asOf ? fmtT(new Date(d.asOf), UK) : "…";
     return `<span class="chip ${cls}" title="${esc(f.name)}${d && d.asOf ? " · updated " + ago(d.asOf) : ""}"><span class="dot"></span>${esc(f.name)} ${esc(txt)}</span>`;
   }).join("");
   const live = $("#liveChip"), ok = S.feeds.deep === "ok";
@@ -64,9 +65,44 @@ function notifyPhase(ph) {
   try { new Notification(`UHE Strategy · ${ph.t}`, { body: top.length ? top.map(r => `${r.s}: ${r.pass}/7 ticks`).join("\n") : "No day-trade setup has 6+ ticks right now.", icon: "/favicon.svg", tag: "uhe-strat" }); } catch { /* ignore */ }
 }
 
+/* ---------------- market pulse ---------------- */
+const PRO_DESK = [
+  ["FinancialJuice", "https://www.financialjuice.com/", "Free real-time headlines and audio squawk"],
+  ["Benzinga Pro", "https://www.benzinga.com/pro/", "Paid: fastest US stock news, squawk, filings"],
+  ["SEC EDGAR · latest filings", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent", "8-Ks, offerings and insider forms as filed"],
+  ["Finviz news", "https://finviz.com/news.ashx", "Wire and blog headlines on one page"],
+  ["ApeWisdom", "https://apewisdom.io/", "Reddit mentions across r/wallstreetbets, r/stocks…"],
+  ["StockTwits", "https://stocktwits.com/", "Retail chatter and trending tickers"]
+];
+function chip(s, extra, title) { const inScan = !!(S.D.deep && S.D.deep.stocks && S.D.deep.stocks[s]); return `<button class="pchip${inScan ? "" : " off"}" data-go="${esc(s)}" title="${esc(title || "")}${inScan ? "" : " · not in the UHE scan"}"><b>${esc(s)}</b>${extra ? `<small>${extra}</small>` : ""}</button>`; }
+function renderPulse() {
+  const el = $("#pulse"), P = S.D.pulse; if (!el) return;
+  const wire = P && P.wire && P.wire.length ? `<ul class="pl-wire">${P.wire.slice(0, 8).map(n => `<li class="${n.s > 0 ? "up" : n.s < 0 ? "down" : ""}"><a href="${esc(/^https:\/\//.test(n.u || "") ? n.u : "#")}" target="_blank" rel="noopener noreferrer">${esc(n.t)}</a><small>${esc(n.src)} · ${ago(new Date(n.ts * 1000).toISOString())}</small></li>`).join("")}</ul>` : `<div class="empty" style="padding:12px">${P ? "Wire needs FINNHUB_KEY in the data engine." : "Arrives after the next data-engine run."}</div>`;
+  const rd = P && P.redditTop && P.redditTop.length ? P.redditTop.slice(0, 10).map(x => chip(x.s, `${x.m} · ${x.x >= 1 ? x.x.toFixed(1) + "×" : "↓"}`, `Reddit #${x.rank}: ${x.m} mentions in 24h (${x.m24} the day before)`)).join("") : `<span class="muted">No Reddit data yet</span>`;
+  const st = P && P.stTrend && P.stTrend.length ? P.stTrend.slice(0, 10).map(x => chip(x.s, "", `${x.t} · trending on StockTwits`)).join("") : `<span class="muted">StockTwits trending unavailable</span>`;
+  el.innerHTML = `<div class="pl-col"><div class="eyebrow">Market wire${P && P.asOf ? " · " + fmtT(new Date(P.asOf), UK) : ""}</div>${wire}</div>
+    <div class="pl-col"><div class="eyebrow">Retail radar</div><h4>Reddit · biggest mention jumps</h4><div class="pchips">${rd}</div><h4>StockTwits · trending now</h4><div class="pchips">${st}</div><p class="note">Tap a ticker to find it in the checklist.</p></div>
+    <div class="pl-col"><div class="eyebrow">Pro desk</div><ul class="pl-desk">${PRO_DESK.map(([n, u, d]) => `<li><a href="${u}" target="_blank" rel="noopener">${esc(n)}</a><small>${esc(d)}</small></li>`).join("")}</ul></div>`;
+}
+$("#pulse").addEventListener("click", e => {
+  const b = e.target.closest("[data-go]"); if (!b) return;
+  const s = b.dataset.go, d = S.D.deep && S.D.deep.stocks && S.D.deep.stocks[s];
+  if (!d) return toast(`${esc(s)} isn't in the UHE scan (not S&amp;P 500 or Nasdaq-listed, or too thinly traded).`);
+  const u = d.u || "S"; S.u = u.includes("S") ? "S" : u.includes("N") ? "N" : "Q"; S.q = s; S.min = 0; S.open = s; S.show = 60;
+  $("#q").value = s; syncTabs(); renderList(); $("#list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
 /* ---------------- ranking + list ---------------- */
+// Per-stock news merged with Reddit mention counts from the pulse feed (cached until either feed changes).
+function newsMap() {
+  const n = S.D.news, p = S.D.pulse;
+  if (S._nm && S._nm.n === n && S._nm.p === p) return S._nm.m;
+  const m = { ...((n && n.stocks) || {}) };
+  for (const [s, rd] of Object.entries((p && p.reddit) || {})) m[s] = { ...(m[s] || {}), rd };
+  S._nm = { n, p, m }; return m;
+}
 function currentRows(mode = S.mode, u = S.u, minPass = S.min) {
-  const D = (S.D.deep && S.D.deep.stocks) || {}, O = (S.D.options && S.D.options.chains) || {}, F = (S.D.fund && S.D.fund.stocks) || {}, N = (S.D.news && S.D.news.stocks) || {};
+  const D = (S.D.deep && S.D.deep.stocks) || {}, O = (S.D.options && S.D.options.chains) || {}, F = (S.D.fund && S.D.fund.stocks) || {}, N = newsMap();
   const watch = u === "W" ? new Set(store.get("uhe.watch", []) || []) : null;
   return rank(mode, D, O, F, N, S.rules, { u, watch, minPass, q: S.q.trim().toUpperCase() });
 }
@@ -104,13 +140,17 @@ function renderList() {
 function detailHTML(r) {
   const R = RULES(), d = r.d, F = r.F || {}, N = r.N, tv = d.tv ? `${d.tv}-${r.s.replace(".", "_")}` : r.s;
   const crit = R.map(([k, l]) => `<div class="dt-c ${ckCls(r.c[k].pass)}"><i>${mark(r.c[k].pass)}</i><div><b>${esc(l)}</b><span>${esc(r.c[k].val)}</span></div></div>`).join("");
-  const news = N && N.items && N.items.length ? `<div class="dt-sec"><h4>Latest headlines</h4><ul class="dt-news">${N.items.map(n => `<li class="${n.s > 0 ? "up" : n.s < 0 ? "down" : ""}"><a href="${esc(/^https?:\/\//.test(n.l) ? n.l : "#")}" target="_blank" rel="noopener noreferrer">${esc(n.t)}</a><small>${esc(n.p)} · ${ago(new Date(n.ts * 1000).toISOString())}</small></li>`).join("")}</ul></div>` : "";
+  const safe = u => /^https:\/\//.test(u || "") ? u : "#";
+  const news = N && N.items && N.items.length ? `<div class="dt-sec"><h4>Latest headlines</h4><ul class="dt-news">${N.items.map(n => `<li class="${n.s > 0 ? "up" : n.s < 0 ? "down" : ""}"><a href="${esc(safe(n.l))}" target="_blank" rel="noopener noreferrer">${esc(n.t)}</a><small>${n.q === "pro" ? '<span class="tier">Wire</span> ' : n.q === "op" ? '<span class="tier op">Opinion</span> ' : ""}${esc(n.p)} · ${ago(new Date(n.ts * 1000).toISOString())}</small></li>`).join("")}</ul></div>` : "";
+  const fil = N && N.sec && N.sec.length ? `<div class="dt-sec"><h4>SEC filings · last 10 days</h4><ul class="dt-news dt-sec-list">${N.sec.map(f => `<li class="${f.tone > 0 ? "up" : f.tone < 0 ? "down" : ""}"><a href="${esc(safe(f.u))}" target="_blank" rel="noopener noreferrer">${esc(f.l)}</a><small>${esc(f.d)}${f.ts ? " · " + fmtT(new Date(f.ts * 1000), UK) + " UK" : ""}</small></li>`).join("")}</ul></div>` : "";
+  const rb = N && N.rd ? redditBuzz(N.rd) : null, stt = N && N.st && (N.st.bull + N.st.bear) ? N.st : null;
+  const retail = rb || stt ? `<div class="dt-sec"><h4>Retail crowd</h4>${rb ? `<p>Reddit: <b>#${rb.rank}</b> most-mentioned · ${rb.m} mentions in 24h${rb.m24 ? ` (${rb.x.toFixed(1)}× the day before)` : ""}</p>` : ""}${stt ? `<p>StockTwits: ${stt.bull} bullish / ${stt.bear} bearish tags in the last ${stt.n} posts${stt.watch ? ` · ${stt.watch.toLocaleString("en-US")} watchers` : ""}</p>` : ""}</div>` : "";
   const hold = F.top && F.top.length ? `<div class="dt-sec"><h4>Top fund holders</h4><ul class="dt-hold">${F.top.map(([n, p, e]) => `<li><span class="nm">${e ? '<span class="pill cyan">ETF</span> ' : ""}${esc(n)}</span><b class="num">${isNum(p) ? p.toFixed(2) + "%" : "—"}</b></li>`).join("")}</ul></div>` : "";
   const an = F.rm != null ? `<div class="dt-sec"><h4>Analysts</h4><div class="dt-an">${[["Strong buy", F.sb], ["Buy", F.b], ["Hold", F.h], ["Sell", F.s], ["Strong sell", F.ss]].map(([n, v]) => `<span><b class="num">${v ?? "—"}</b>${n}</span>`).join("")}</div>${F.tgt ? `<p class="note">Average target ${fp(F.tgt, 2)} (${pct(F.up)}).${F.erd ? " Next earnings " + esc(F.erd) + "." : ""}</p>` : ""}</div>` : "";
   const p = r.plan, plan = p ? (S.mode === "day"
     ? `<p><b>Entry:</b> buy around ${fp(p.entry, 2)}. Take ${pct(p.tpPct)} at ${fp(p.tp, 2)}${p.capped ? `, just under yesterday's high (${fp(d.pdh, 2)})` : ""}. Stop ${fp(p.sl, 2)} (−${p.slPct}%).</p><p class="note">If it sells off first, wait for it to reclaim yesterday's close${isNum(p.dipLevel) ? " (" + fp(p.dipLevel, 2) + ")" : ""} before buying, then sell before yesterday's high.</p>`
     : `<p>Buy around ${fp(p.entry, 2)}, target ${fp(p.tp, 2)} (${pct(p.tpPct)}), stop ${fp(p.sl, 2)} (−${p.slPct}%).</p>`) : "";
-  return `<div class="st-detail"><div class="dt-grid">${crit}</div><div class="dt-cols"><div class="dt-sec"><h4>Plan</h4>${plan}<p><a href="https://www.tradingview.com/symbols/${esc(tv)}/" target="_blank" rel="noopener">Open ${esc(r.s)} on TradingView</a></p></div>${an}${hold}${news}</div></div>`;
+  return `<div class="st-detail"><div class="dt-grid">${crit}</div><div class="dt-cols"><div class="dt-sec"><h4>Plan</h4>${plan}<p><a href="https://www.tradingview.com/symbols/${esc(tv)}/" target="_blank" rel="noopener">Open ${esc(r.s)} on TradingView</a></p></div>${an}${retail}${fil}${news}${hold}</div></div>`;
 }
 
 /* ---------------- rules editor ---------------- */
@@ -307,7 +347,7 @@ document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#ticke
 syncTabs(); renderPhase(); setInterval(renderPhase, 30e3);
 (async () => {
   await Promise.all(Object.keys(FEEDS).map(load));
-  renderChips(); renderList();
-  for (const [k, f] of Object.entries(FEEDS)) setInterval(async () => { if (document.visibilityState !== "visible") return; await load(k); renderChips(); if (!$("#ticket").hidden) return; renderList(); }, f.every);
+  renderChips(); renderList(); renderPulse();
+  for (const [k, f] of Object.entries(FEEDS)) setInterval(async () => { if (document.visibilityState !== "visible") return; await load(k); renderChips(); if (k === "pulse") renderPulse(); if (!$("#ticket").hidden) return; renderList(); }, f.every);
 })();
 brokerStatus();

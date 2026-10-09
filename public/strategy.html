@@ -47,6 +47,8 @@
     <div class="glass pad broker" id="broker"><div class="eyebrow">IC Markets · cTrader</div><div class="empty">Checking connection…</div></div>
   </div>
 
+  <section class="glass pad pulse" id="pulse" aria-label="Market pulse"><div class="eyebrow">Market pulse</div><div class="empty">Loading…</div></section>
+
   <div class="strat-bar">
     <div class="tabs" role="group" aria-label="Strategy" id="modeTabs"><button data-m="day" aria-pressed="true">Day trade</button><button data-m="long" aria-pressed="false">Long term</button></div>
     <div class="tabs" role="group" aria-label="Universe" id="univTabs"><button data-u="S" aria-pressed="true">S&amp;P 500</button><button data-u="N" aria-pressed="false">Nasdaq-100</button><button data-u="Q" aria-pressed="false">All Nasdaq</button><button data-u="W" aria-pressed="false">My watchlist</button></div>
@@ -58,7 +60,7 @@
   <div class="glass pad rules" id="rules" hidden></div>
 
   <div class="glass strat-list" id="list"><div class="empty">Loading the scan…</div></div>
-  <p class="note">Data: Yahoo Finance (prices, RSI, KST, options, analysts, fund holders, dividends, earnings dates, headlines) and StockTwits (retail sentiment), refreshed by the UHE data engine. Headline tone is a simple keyword read, not AI. Orders go to your own IC Markets cTrader account through the cTrader Open API. Nothing here is investment advice.</p>
+  <p class="note">Data: Yahoo Finance (prices, RSI, KST, options, analysts, fund holders, dividends, earnings dates, wire headlines), SEC EDGAR (company filings), Finnhub (market wire), Reddit via ApeWisdom and StockTwits (retail crowd), refreshed by the UHE data engine. Headline tone is a simple keyword read, not AI. Orders go to your own IC Markets cTrader account through the cTrader Open API. Nothing here is investment advice.</p>
 </main>
 
 <div class="scrim" id="scrim" hidden></div>

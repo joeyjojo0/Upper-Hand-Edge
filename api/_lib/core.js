@@ -583,20 +583,79 @@ export async function fundamentalsFor(syms) {
 }
 
 /* ------------------------------------------------------------------ news + retail sentiment */
-// Headlines from Yahoo Finance search, scored with a simple keyword tone (not AI, not advice),
-// plus StockTwits bull/bear tags as a read on retail traders (best effort: skipped if StockTwits blocks us).
+// What active traders watch, using the free versions:
+//  · primary source: SEC EDGAR filings (8-K events, share offerings, 13D stakes, Form 4 insider filings)
+//  · newswires: Yahoo Finance headlines (Reuters, Dow Jones, Business Wire, GlobeNewswire, PR Newswire, Benzinga…),
+//    weighted by publisher quality, plus Finnhub's market-wide wire for the pulse panel
+//  · retail: StockTwits (bull/bear tags, trending) and Reddit mention counts via ApeWisdom (r/wallstreetbets, r/stocks…)
+// Headline tone is a simple keyword read (not AI, not advice).
 const POS = /\b(beat|beats|tops|raises?|raised|upgrade[sd]?|record|surge[sd]?|soar(s|ed)?|jump(s|ed)?|rall(y|ies|ied)|bullish|buy rating|outperform|overweight|strong demand|partnership|contract win|approval|approved|guidance (hike|raise)|buyback|dividend (hike|increase))\b/i;
-const NEG = /\b(miss(es|ed)?|cuts?|lower(s|ed)? guidance|downgrade[sd]?|plunge[sd]?|sink(s)?|slump(s|ed)?|tumble[sd]?|bearish|sell rating|underperform|underweight|lawsuit|probe|investigation|recall|fraud|layoffs?|warning|warns|halt(ed)?|delist|bankrupt|short seller)\b/i;
+const NEG = /\b(miss(es|ed)?|cuts?|lower(s|ed)? guidance|downgrade[sd]?|plunge[sd]?|sink(s)?|slump(s|ed)?|tumble[sd]?|bearish|sell rating|underperform|underweight|lawsuit|probe|investigation|recall|fraud|layoffs?|warning|warns|halt(ed)?|delist|bankrupt|short seller|offering|dilution)\b/i;
 export function headlineTone(t) { const p = POS.test(t), n = NEG.test(t); return p && !n ? 1 : n && !p ? -1 : 0; }
-export async function newsFor(syms) {
-  const now = Date.now() / 1000; let stFails = 0, stOk = 0;
+const PUB_PRO = /reuters|bloomberg|dow jones|wall street journal|\bwsj\b|barron|cnbc|marketwatch|financial times|associated press|\bap\b|business wire|globenewswire|pr ?newswire|accesswire|benzinga|investor'?s business daily|fierce|stat news|endpoints/i;
+const PUB_OPINION = /motley fool|zacks|investorplace|simply wall|insider monkey|24\/7 wall|gurufocus|seeking alpha|tipranks|validea|stocknews|market ?beat/i;
+export function pubTier(p) { return PUB_PRO.test(p || "") ? "pro" : PUB_OPINION.test(p || "") ? "op" : ""; }
+const TIER_W = { pro: 1.5, op: 0.5, "": 1 };
+
+// SEC EDGAR. The SEC asks automated users for a User-Agent with a contact email (set SEC_CONTACT) and ≤10 requests/s.
+const SEC_UA = () => `UpperHandEdge/1.0 ${process.env.SEC_CONTACT || "(github.com/joeyjojo0/Upper-Hand-Edge)"}`;
+let SEC_T = 0, CIKS = null;
+async function secGet(url) {
+  const wait = Math.max(0, SEC_T + 140 - Date.now()); SEC_T = Date.now() + wait; if (wait) await sleep(wait);
+  const r = await fetch(url, { headers: { "User-Agent": SEC_UA(), Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error("SEC HTTP " + r.status);
+  return r.json();
+}
+export async function secCiks() {
+  if (CIKS) return CIKS;
+  const j = await secGet("https://www.sec.gov/files/company_tickers.json");
+  CIKS = {}; for (const v of Object.values(j || {})) if (v && v.ticker) CIKS[String(v.ticker).toUpperCase().replace(/-/g, ".")] = v.cik_str;
+  return CIKS;
+}
+const ITEM = { "1.01": ["Material agreement", 0], "1.02": ["Agreement terminated", -1], "1.03": ["Bankruptcy", -1], "2.01": ["Deal completed", 0], "2.02": ["Earnings release", 0],
+  "2.03": ["New debt", 0], "2.05": ["Restructuring", -1], "2.06": ["Write-down", -1], "3.01": ["Listing / delisting notice", -1], "3.02": ["Unregistered share sale", -1],
+  "4.01": ["Auditor change", -1], "4.02": ["Restatement", -1], "5.01": ["Change of control", 0], "5.02": ["Director / officer change", 0], "5.07": ["Shareholder vote", 0], "7.01": ["Reg FD disclosure", 0], "8.01": ["Other event", 0] };
+export function classifyFiling(form, items) {
+  const f = String(form || "").toUpperCase();
+  if (/^(S-1|S-3|F-1|F-3)/.test(f) || /^424B/.test(f)) return { k: "dil", l: "Share offering / shelf (" + f + ")", tone: -1 };
+  if (/13D/.test(f)) return { k: "stake", l: "Major stake, active (13D)", tone: 1 };
+  if (/13G/.test(f)) return { k: "stake", l: "Major stake, passive (13G)", tone: 0 };
+  if (f === "4") return { k: "ins", l: "Insider transaction (Form 4)", tone: 0 };
+  if (/^(8-K|6-K)/.test(f)) {
+    const its = String(items || "").split(",").map(x => x.trim()).filter(x => ITEM[x]);
+    const tone = its.some(x => ITEM[x][1] < 0) ? -1 : 0, red = its.some(x => ["1.03", "3.01", "4.02", "2.06", "3.02"].includes(x));
+    return { k: red ? "red" : its.includes("2.02") ? "earn" : "8k", l: f + (its.length ? ": " + its.map(x => ITEM[x][0]).join(", ") : ""), tone };
+  }
+  if (/^(10-Q|10-K|20-F|40-F)/.test(f)) return { k: "rep", l: f + " report", tone: 0 };
+  return null;
+}
+export async function secFilings(cik, days = 10, now = Date.now()) {
+  const j = await secGet(`https://data.sec.gov/submissions/CIK${String(cik).padStart(10, "0")}.json`);
+  const R = (j.filings && j.filings.recent) || {}, out = [];
+  for (let i = 0; i < (R.form || []).length && out.length < 12; i++) {
+    const d = R.filingDate[i]; if (!d || now - Date.parse(d + "T00:00:00Z") > days * 864e5) continue;
+    const c = classifyFiling(R.form[i], R.items && R.items[i]); if (!c) continue;
+    const acc = String(R.accessionNumber[i] || "").replace(/-/g, "");
+    out.push({ f: R.form[i], d, ts: R.acceptanceDateTime && R.acceptanceDateTime[i] ? Math.floor(Date.parse(R.acceptanceDateTime[i]) / 1000) : null, ...c, u: acc ? `https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/${acc}/${R.primaryDocument[i] || ""}` : "" });
+  }
+  return out;
+}
+function secFlags(list, now = Date.now()) {
+  const within = (x, d) => now - Date.parse(x.d + "T00:00:00Z") <= d * 864e5;
+  return { dil: list.some(x => x.k === "dil" && within(x, 5)), red: list.some(x => x.k === "red" && within(x, 10)), act: list.some(x => x.k === "stake" && x.tone > 0),
+    ins: list.filter(x => x.k === "ins").length, n: list.filter(x => x.k !== "ins").length };
+}
+
+export async function newsFor(syms, { sec = true } = {}) {
+  const now = Date.now() / 1000; let stFails = 0, stOk = 0, secOk = 0, secFails = 0;
   const ST = s => PROXY_BASE ? `${PROXY_BASE}/st/streams/symbol/${encodeURIComponent(s)}.json` : `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(s)}.json`;
+  const ciks = sec ? await secCiks().catch(() => null) : null;
   const res = await pool(syms, async s => {
-    const j = await getJSON(`/v1/finance/search?q=${encodeURIComponent(s.replace(/\./g, "-"))}&quotesCount=0&newsCount=10&enableFuzzyQuery=false`, { tries: 2 });
-    const items = ((j && j.news) || []).filter(n => n.title && n.providerPublishTime).map(n => ({ t: String(n.title).slice(0, 160), p: n.publisher || "", ts: n.providerPublishTime, l: n.link || "", s: headlineTone(n.title) })).sort((a, b) => b.ts - a.ts);
-    const inW = h => items.filter(n => now - n.ts <= h * 3600);
+    const j = await getJSON(`/v1/finance/search?q=${encodeURIComponent(s.replace(/\./g, "-"))}&quotesCount=0&newsCount=12&enableFuzzyQuery=false`, { tries: 2 });
+    const items = ((j && j.news) || []).filter(n => n.title && n.providerPublishTime).map(n => ({ t: String(n.title).slice(0, 160), p: n.publisher || "", ts: n.providerPublishTime, l: n.link || "", s: headlineTone(n.title), q: pubTier(n.publisher) })).sort((a, b) => b.ts - a.ts);
+    const inW = h => items.filter(n => now - n.ts <= h * 3600), tone = a => rd(a.reduce((t, n) => t + n.s * TIER_W[n.q], 0), 1);
     const d2 = inW(48), d7 = inW(168);
-    const out = { n48: d2.length, n7: d7.length, tone48: d2.reduce((t, n) => t + n.s, 0), tone7: d7.reduce((t, n) => t + n.s, 0), items: items.slice(0, 5) };
+    const out = { n48: d2.length, pro48: d2.filter(n => n.q === "pro").length, n7: d7.length, tone48: tone(d2), tone7: tone(d7), items: items.slice(0, 6) };
     if (stFails < 6) {
       try {
         const r = await fetch(ST(s), { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
@@ -607,11 +666,48 @@ export async function newsFor(syms) {
         out.st = { bull, bear, n: msgs.length, watch: st.symbol && st.symbol.watchlist_count || null }; stOk++;
       } catch (e) { stFails++; }
     }
+    const cik = ciks && ciks[s.toUpperCase()];
+    if (cik && secFails < 8) {
+      try { const f = await secFilings(cik); out.sec = f.slice(0, 8); out.secf = secFlags(f); secOk++; }
+      catch (e) { secFails++; }
+    }
     return [s, out];
   }, PROXY_BASE ? 6 : 12);
   const out = {}; let fails = 0; for (const r of res) { if (r && !r.__err) out[r[0]] = r[1]; else fails++; }
   if (!Object.keys(out).length) throw new Error("no news returned");
-  return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, stocktwits: stOk > 0, stocks: out };
+  return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, stocktwits: stOk > 0, sec: secOk > 0, stocks: out };
+}
+
+// Market-wide pulse: Finnhub general wire (needs FINNHUB_KEY), Reddit mention leaders (ApeWisdom), StockTwits trending.
+export async function pulse() {
+  const out = { asOf: new Date().toISOString(), wire: [], reddit: {}, redditTop: [], stTrend: [], errors: [] };
+  const get = async (url, headers = {}) => { const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", ...headers }, signal: AbortSignal.timeout(12000) }); if (!r.ok) throw new Error(url.split("?")[0].split("/").slice(0, 3).join("/") + " HTTP " + r.status); return r.json(); };
+  const key = process.env.FINNHUB_KEY;
+  await Promise.all([
+    key ? get(`https://finnhub.io/api/v1/news?category=general&token=${key}`).then(a => {
+      out.wire = (Array.isArray(a) ? a : []).filter(n => n.headline && n.datetime).sort((x, y) => y.datetime - x.datetime).slice(0, 25)
+        .map(n => ({ t: String(n.headline).slice(0, 180), src: n.source || "", ts: n.datetime, u: n.url || "", s: headlineTone(n.headline), rel: n.related || "" }));
+    }).catch(e => out.errors.push("wire: " + e.message)) : Promise.resolve(out.errors.push("wire: FINNHUB_KEY not set")),
+    (async () => {
+      for (let p = 1; p <= 3; p++) {
+        const j = await get(`https://apewisdom.io/api/v1.0/filter/all-stocks/page/${p}`);
+        for (const r of j.results || []) {
+          const s = String(r.ticker || "").toUpperCase(); if (!s || out.reddit[s]) continue;
+          out.reddit[s] = [+r.rank || null, +r.mentions || 0, +r.mentions_24h_ago || 0, +r.upvotes || 0, +r.rank_24h_ago || null];
+        }
+        if (!j.pages || p >= +j.pages) break;
+      }
+      out.redditTop = Object.entries(out.reddit).filter(([, v]) => v[1] >= 15).map(([s, v]) => ({ s, rank: v[0], m: v[1], m24: v[2], x: rd(v[1] / Math.max(1, v[2]), 1) }))
+        .sort((a, b) => b.x - a.x || b.m - a.m).slice(0, 15);
+    })().catch(e => out.errors.push("reddit: " + e.message)),
+    (async () => {
+      const url = PROXY_BASE ? `${PROXY_BASE}/st/trending/symbols.json` : "https://api.stocktwits.com/api/2/trending/symbols.json";
+      const j = await get(url);
+      out.stTrend = (j.symbols || []).slice(0, 20).map(x => ({ s: String(x.symbol || "").toUpperCase(), t: String(x.title || "").slice(0, 40), w: x.watchlist_count || null })).filter(x => x.s);
+    })().catch(e => out.errors.push("stocktwits: " + e.message))
+  ]);
+  if (!out.wire.length && !out.redditTop.length && !out.stTrend.length) throw new Error(out.errors.join("; ") || "no pulse data");
+  return out;
 }
 
 /* ------------------------------------------------------------------ http helpers */
