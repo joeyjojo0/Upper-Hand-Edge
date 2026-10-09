@@ -82,6 +82,23 @@ export function rsi(c, n = 14) {
   for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; }
   return l === 0 ? 100 : 100 - 100 / (1 + g / l);
 }
+// RSI value at every bar (null until enough history), same Wilder smoothing as rsi().
+export function rsiSeries(c, n = 14) {
+  const out = new Array(c.length).fill(null); if (c.length <= n + 1) return out;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; }
+  g /= n; l /= n;
+  for (let i = n + 1; i < c.length; i++) { const d = c[i] - c[i - 1]; g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n; out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l); }
+  return out;
+}
+// Pring's Know Sure Thing: weighted sum of smoothed rates of change (10/15/20/30, smoothed 10/10/10/15), signal = 9-SMA.
+export function kstSeries(c) {
+  const roc = r => c.map((v, i) => i >= r && c[i - r] ? (v / c[i - r] - 1) * 100 : null);
+  const smaS = (a, n) => a.map((_, i) => { if (i < n - 1) return null; const w = a.slice(i - n + 1, i + 1); return w.some(x => x == null) ? null : avg(w); });
+  const r1 = smaS(roc(10), 10), r2 = smaS(roc(15), 10), r3 = smaS(roc(20), 10), r4 = smaS(roc(30), 15);
+  const k = c.map((_, i) => [r1[i], r2[i], r3[i], r4[i]].some(x => x == null) ? null : r1[i] + 2 * r2[i] + 3 * r3[i] + 4 * r4[i]);
+  return { kst: k, sig: smaS(k, 9) };
+}
 export function atr(b, n = 14) {
   if (b.length <= n + 1) return null; const tr = [];
   for (let i = 1; i < b.length; i++) { const pc = b[i - 1].c; tr.push(Math.max(b[i].h - b[i].l, Math.abs(b[i].h - pc), Math.abs(b[i].l - pc))); }
@@ -411,14 +428,17 @@ function osc(b) {
   const K = sma3(fastK), D = sma3(K);
   const ema = (a, p) => { const k = 2 / (p + 1); let e = a[0]; return a.map(v => (e = v * k + e * (1 - k))); };
   const c = b.map(z => z.c), e12 = ema(c, 12), e26 = ema(c, 26), macd = c.map((_, i) => e12[i] - e26[i]), sig = ema(macd, 9);
-  return { stK: rd(K[K.length - 1], 1), stD: rd(D[D.length - 1], 1), stKp: rd(K[K.length - 2], 1), macdH: rd(macd[n - 1] - sig[n - 1], 3), macdHp: rd(macd[n - 2] - sig[n - 2], 3), rsiP: rd(rsi(c.slice(0, -1)), 0) };
+  const RS = rsiSeries(c), KS = kstSeries(c), last5 = a => a.slice(-5).map(v => v == null ? null : rd(v, 1));
+  const m20 = i => i >= 19 ? avg(c.slice(i - 19, i + 1)) : null;
+  return { stK: rd(K[K.length - 1], 1), stD: rd(D[D.length - 1], 1), stKp: rd(K[K.length - 2], 1), macdH: rd(macd[n - 1] - sig[n - 1], 3), macdHp: rd(macd[n - 2] - sig[n - 2], 3), rsiP: rd(rsi(c.slice(0, -1)), 0),
+    rsi5: last5(RS), kst5: last5(KS.kst), kstSig5: last5(KS.sig), sma50d: n >= 50 ? rd(avg(c.slice(-50)), 3) : null, sma20up: m20(n - 1) != null && m20(n - 6) != null ? m20(n - 1) > m20(n - 6) : null };
 }
 
 export async function scanHist() {
   const list = await universe();
   const now = et(Date.now() / 1000), td = now.wd !== "Sat" && now.wd !== "Sun";
   const hist = await pool(["SPY"].concat(list.map(x => x.y)), async sym => {
-    const b = bars(await chart(sym, "3mo", "1d"));
+    const b = bars(await chart(sym, "6mo", "1d"));
     // drop today's bar while the regular session is still running
     if (b.length && td && et(b[b.length - 1].t).d === now.d && now.m < 960) b.pop();
     return b;
@@ -504,7 +524,7 @@ export async function scanLive(H) {
   const deep = Object.fromEntries(rows.map(r => { const h = hx[r.s] || {}, x = q[h.y] || {};
     return [r.s, { px: r.px, chg: r.chg, gap: r.gap, ext: r.ext, rsi: r.rsi, rsiP: h.rsiP, stK: h.stK, stD: h.stD, stKp: h.stKp, macdH: h.macdH, macdHp: h.macdHp,
       rvol: r.rvol, vol: h.vol, adv20: h.adv20, volNow: x.regularMarketVolume || null, avg10: x.averageDailyVolume10Day || null, sma20: r.sma20 ?? h.sma20, sma50: r.sma50, sma200: r.sma200,
-      u: r.u, atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
+      rsi5: h.rsi5, kst5: h.kst5, kstSig5: h.kstSig5, sma20up: h.sma20up, sma50d: h.sma50d, u: r.u, atr: r.atr, atrPct: r.atrPct, pdh: r.pdh, pdl: r.pdl, pdc: r.pdc, hi20: r.hi20, lo20: r.lo20, ret5: r.ret5, score: r.score, er: r.er, tv: r.tv, name: r.name, sec: r.sec, mcap: r.mcap }]; }));
   return { v: 3, asOf: new Date().toISOString(), histAsOf: H.asOf, sectors: SECTOR_SHORT, moveLabel, breadth, sec, play, longs, shorts, er, map, missing: H.missing, ndx: ND, nasdaq: NQ_, deep };
 }
 
@@ -524,6 +544,74 @@ export async function optionsFor(syms) {
   const out = {}; let fails = 0; for (const r of res) { if (r && !r.__err) out[r[0]] = r[1]; else fails++; }
   if (!Object.keys(out).length) throw new Error("no option chains returned");
   return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, chains: out };
+}
+
+/* ------------------------------------------------------------------ fundamentals: analysts, holders, dividends, earnings */
+// One quoteSummary call per stock. ETF / index-fund holders come from Yahoo's top fund-holder list.
+const RAW = v => v && typeof v === "object" ? (v.raw ?? null) : (v ?? null);
+const ETF_RE = /\bETF\b|index|spdr|ishares|invesco qqq|vanguard|select sector|total (stock )?market|s&p 500|nasdaq[- ]100|russell|msci/i;
+export function parseSummary(r) {
+  const fd = r.financialData || {}, sd = r.summaryDetail || {}, mh = r.majorHoldersBreakdown || {}, ce = (r.calendarEvents || {}).earnings || {};
+  const tr = ((r.recommendationTrend || {}).trend || []).find(t => t.period === "0m") || {};
+  const own = ((r.fundOwnership || {}).ownershipList || []).map(o => ({ n: String(o.organization || "").slice(0, 48), p: RAW(o.pctHeld) })).filter(o => o.n);
+  const etfs = own.filter(o => ETF_RE.test(o.n));
+  const px = RAW(fd.currentPrice), tgt = RAW(fd.targetMeanPrice), ed = (ce.earningsDate || []).map(RAW).filter(Boolean)[0];
+  const dy = RAW(sd.dividendYield) ?? RAW(sd.trailingAnnualDividendYield);
+  return {
+    rm: rd(RAW(fd.recommendationMean), 2), rk: fd.recommendationKey || null, na: RAW(fd.numberOfAnalystOpinions),
+    tgt: rd(tgt, 2), up: px && tgt ? rd((tgt / px - 1) * 100, 1) : null,
+    sb: tr.strongBuy ?? null, b: tr.buy ?? null, h: tr.hold ?? null, s: tr.sell ?? null, ss: tr.strongSell ?? null,
+    dy: dy != null ? rd(dy * 100, 2) : null, exd: RAW(sd.exDividendDate) ? new Date(RAW(sd.exDividendDate) * 1000).toISOString().slice(0, 10) : null,
+    inst: RAW(mh.institutionsPercentHeld) != null ? rd(RAW(mh.institutionsPercentHeld) * 100, 1) : null,
+    etfN: etfs.length, etfPct: etfs.length ? rd(etfs.reduce((t, o) => t + (o.p || 0), 0) * 100, 2) : null,
+    top: own.slice(0, 5).map(o => [o.n, o.p != null ? rd(o.p * 100, 2) : null, ETF_RE.test(o.n) ? 1 : 0]),
+    erd: ed ? new Date(ed * 1000).toISOString().slice(0, 10) : null
+  };
+}
+export async function fundamentalsFor(syms) {
+  const MODS = "financialData,summaryDetail,recommendationTrend,majorHoldersBreakdown,fundOwnership,calendarEvents";
+  let cr = await crumb().catch(() => ({ crumb: "", cookie: "" }));
+  const res = await pool(syms, async s => {
+    const q = `/v10/finance/quoteSummary/${encodeURIComponent(s.replace(/\./g, "-"))}?modules=${MODS}` + (PROXY_BASE ? "" : `&crumb=${encodeURIComponent(cr.crumb)}`);
+    const j = await getJSON(q, { headers: PROXY_BASE ? {} : { Cookie: cr.cookie }, tries: 2 });
+    const r = j && j.quoteSummary && j.quoteSummary.result && j.quoteSummary.result[0];
+    return r ? [s, parseSummary(r)] : null;
+  }, PROXY_BASE ? 6 : 12);
+  const out = {}; let fails = 0; for (const r of res) { if (r && !r.__err) out[r[0]] = r[1]; else fails++; }
+  if (!Object.keys(out).length) throw new Error("no fundamentals returned");
+  return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, stocks: out };
+}
+
+/* ------------------------------------------------------------------ news + retail sentiment */
+// Headlines from Yahoo Finance search, scored with a simple keyword tone (not AI, not advice),
+// plus StockTwits bull/bear tags as a read on retail traders (best effort: skipped if StockTwits blocks us).
+const POS = /\b(beat|beats|tops|raises?|raised|upgrade[sd]?|record|surge[sd]?|soar(s|ed)?|jump(s|ed)?|rall(y|ies|ied)|bullish|buy rating|outperform|overweight|strong demand|partnership|contract win|approval|approved|guidance (hike|raise)|buyback|dividend (hike|increase))\b/i;
+const NEG = /\b(miss(es|ed)?|cuts?|lower(s|ed)? guidance|downgrade[sd]?|plunge[sd]?|sink(s)?|slump(s|ed)?|tumble[sd]?|bearish|sell rating|underperform|underweight|lawsuit|probe|investigation|recall|fraud|layoffs?|warning|warns|halt(ed)?|delist|bankrupt|short seller)\b/i;
+export function headlineTone(t) { const p = POS.test(t), n = NEG.test(t); return p && !n ? 1 : n && !p ? -1 : 0; }
+export async function newsFor(syms) {
+  const now = Date.now() / 1000; let stFails = 0, stOk = 0;
+  const ST = s => PROXY_BASE ? `${PROXY_BASE}/st/streams/symbol/${encodeURIComponent(s)}.json` : `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(s)}.json`;
+  const res = await pool(syms, async s => {
+    const j = await getJSON(`/v1/finance/search?q=${encodeURIComponent(s.replace(/\./g, "-"))}&quotesCount=0&newsCount=10&enableFuzzyQuery=false`, { tries: 2 });
+    const items = ((j && j.news) || []).filter(n => n.title && n.providerPublishTime).map(n => ({ t: String(n.title).slice(0, 160), p: n.publisher || "", ts: n.providerPublishTime, l: n.link || "", s: headlineTone(n.title) })).sort((a, b) => b.ts - a.ts);
+    const inW = h => items.filter(n => now - n.ts <= h * 3600);
+    const d2 = inW(48), d7 = inW(168);
+    const out = { n48: d2.length, n7: d7.length, tone48: d2.reduce((t, n) => t + n.s, 0), tone7: d7.reduce((t, n) => t + n.s, 0), items: items.slice(0, 5) };
+    if (stFails < 6) {
+      try {
+        const r = await fetch(ST(s), { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+        if (!r.ok) throw new Error("StockTwits HTTP " + r.status);
+        const st = await r.json(), msgs = st.messages || [];
+        const tag = m => m && m.entities && m.entities.sentiment && m.entities.sentiment.basic;
+        const bull = msgs.filter(m => tag(m) === "Bullish").length, bear = msgs.filter(m => tag(m) === "Bearish").length;
+        out.st = { bull, bear, n: msgs.length, watch: st.symbol && st.symbol.watchlist_count || null }; stOk++;
+      } catch (e) { stFails++; }
+    }
+    return [s, out];
+  }, PROXY_BASE ? 6 : 12);
+  const out = {}; let fails = 0; for (const r of res) { if (r && !r.__err) out[r[0]] = r[1]; else fails++; }
+  if (!Object.keys(out).length) throw new Error("no news returned");
+  return { asOf: new Date().toISOString(), n: Object.keys(out).length, fails, stocktwits: stOk > 0, stocks: out };
 }
 
 /* ------------------------------------------------------------------ http helpers */

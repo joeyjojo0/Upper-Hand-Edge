@@ -57,7 +57,22 @@ function scanLive() {
   const nq = { breadth: { ...scan.breadth, n: map.filter(l => l.split("|")[11].includes("Q")).length }, sec: scan.sec.concat([{ name: "Other Nasdaq", n: 1400, chg: 0.4, gap: 0.2, a50: 48, score: 51, best: "XAAA", worst: "XBAA", mcap: 2100 }]), play: scan.play.slice(0, 10), longs: scan.longs.slice(0, 10), shorts: scan.shorts.slice(0, 10), er: scan.er };
   return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", sectors: (scan.sectors || []).length >= 12 ? scan.sectors : (scan.sectors || []).concat(["Other Nasdaq"]), map, ndx: nd, nasdaq: nq };
 }
-export async function handle(name) {
+// Fake IC Markets bridge: PIN is "demo-pin-123". Orders "fill" at the scan price.
+const POS = [];
+async function mockTrade(req) {
+  if (!req || req.method !== "POST") return { broker: "IC Markets", platform: "cTrader Open API", env: "demo", configured: { app: true, token: true, account: true, pin: true }, ready: true, maxUsd: 2000, asOf: new Date().toISOString() };
+  let s = ""; for await (const ch of req) s += ch; const b = JSON.parse(s || "{}");
+  if (b.pin !== "demo-pin-123") return { ok: false, code: "BAD_PIN", error: "Wrong PIN" };
+  const acct = () => ({ ok: true, env: "demo", account: { balance: 25000, ccy: "USD", leverage: 30, login: 9001 }, positions: POS.map(p => ({ ...p, now: p.price * 1.004, pnl: +(p.price * 0.004 * p.units).toFixed(2) })) });
+  if (b.action === "account" || b.action === "positions") return acct();
+  if (b.action === "find") return { ok: true, matches: [{ id: 1, name: b.symbol + ".US", desc: "Mock", score: 90 }] };
+  if (b.action === "close") { const i = POS.findIndex(p => String(p.id) === String(b.positionId)); if (i >= 0) POS.splice(i, 1); return { ok: true, env: "demo", closed: b.positionId, price: 100 }; }
+  if (b.action === "order") { const px = b.refPx || 100, units = Math.floor(b.usd / px); if (units < 1) return { ok: false, code: "TOO_SMALL", error: "Order too small" };
+    const p = { id: 500 + POS.length, symbol: b.symbol + ".US", side: "BUY", units, price: px, sl: +(px * (1 - b.slPct / 100)).toFixed(2), tp: b.tpPrice || +(px * (1 + b.tpPct / 100)).toFixed(2), label: "UHE " + b.mode }; POS.push(p);
+    return { ok: true, env: "demo", status: "ORDER_FILLED", symbol: p.symbol, units, ask: px, fill: px, sl: p.sl, tp: p.tp, positionId: p.id }; }
+  return { ok: false, error: "Unknown action" };
+}
+export async function handle(name, req) {
   switch (name) {
     case "quotes": return quotes();
     case "basis": return basis();
@@ -67,9 +82,20 @@ export async function handle(name) {
     case "calendar": return cal;
     case "brief": return { ai: false, reason: "mock" };
     case "deep": { const sc = scanLive(); const st = {}; for (const line of sc.map) { const [sym, sec, mcap, chg, gap, score, rsi, atrPct, rvol] = line.split("|"); const d = [].concat(scan.play, scan.longs, scan.shorts).find(r => r.s === sym) || {}; const px = d.px || 50 + rnd() * 400, k = 20 + rnd() * 70;
-      st[sym] = { px, chg: +chg, gap: gap === "" ? null : +gap, rsi: +rsi || 50, rsiP: (+rsi || 50) - 3 + rnd() * 6, stK: k, stD: k - 8 + rnd() * 16, stKp: k - 6 + rnd() * 12, rvol: +rvol || 1, sma20: px * (0.97 + rnd() * 0.06), sma50: px * (0.94 + rnd() * 0.1), atrPct: +atrPct || 2, pdh: px * 1.01, pdl: px * 0.99, pdc: px, name: d.name || sym, sec: +sec, mcap: +mcap }; }
+      const u = line.split("|")[11] || "S", tvx = line.split("|")[10] || "NASDAQ", R0 = +rsi || 50, kb = rnd() < 0.55;
+      st[sym] = { u, tv: tvx, ext: gap === "" ? null : px * (1 + +gap / 100), rsi5: [0, 1, 2, 3, 4].map(i => Math.round(R0 - 4 + i + rnd() * 6)), kst5: [0, 1, 2, 3, 4].map(i => +(5 + i + rnd() * 3).toFixed(1)), kstSig5: [0, 1, 2, 3, 4].map(i => +(kb ? 3 + i : 9 + i).toFixed(1)), sma20up: rnd() < 0.6, px, chg: +chg, gap: gap === "" ? null : +gap, rsi: +rsi || 50, rsiP: (+rsi || 50) - 3 + rnd() * 6, stK: k, stD: k - 8 + rnd() * 16, stKp: k - 6 + rnd() * 12, rvol: +rvol || 1, sma20: px * (0.95 + rnd() * 0.06), sma50: px * (0.92 + rnd() * 0.06), atrPct: +atrPct || 2, pdh: px * 1.01, pdl: px * 0.99, pdc: px, name: d.name || sym, sec: +sec, mcap: +mcap }; }
       return { asOf: new Date().toISOString(), stocks: st }; }
     case "options": { const ch = {}; for (const line of scanLive().map) { const sym = line.split("|")[0]; const cv = Math.round(1000 + rnd() * 50000), pv = Math.round(cv * (0.3 + rnd() * 1.5)); ch[sym] = { cv, pv, coi: cv * 4, poi: pv * 4, pcr: +(pv / cv).toFixed(2), cvOi: +(cv / (cv * 4)).toFixed(2), iv: 30, topCall: { k: 100, v: Math.round(cv / 5) } }; } return { asOf: new Date().toISOString(), chains: ch }; }
+    case "fund": { const out = {}; for (const line of scanLive().map) { const sym = line.split("|")[0], k = rnd(); if (k < 0.08) continue;
+      out[sym] = { rm: +(1.4 + rnd() * 1.8).toFixed(2), na: Math.round(3 + rnd() * 40), tgt: null, up: +(rnd() * 30 - 5).toFixed(1), sb: Math.round(rnd() * 15), b: Math.round(rnd() * 15), h: Math.round(rnd() * 10), s: Math.round(rnd() * 3), ss: Math.round(rnd() * 2),
+        dy: rnd() < 0.55 ? +(rnd() * 5).toFixed(2) : null, inst: +(30 + rnd() * 60).toFixed(1), etfN: Math.round(rnd() * 5), top: [["Vanguard Total Stock Market Index Fund", 3.1, 1], ["SPDR S&P 500 ETF Trust", 1.2, 1], ["Fidelity Contrafund", 0.9, 0]],
+        erd: new Date(Date.now() + Math.round(rnd() * 40) * 864e5).toISOString().slice(0, 10) }; }
+      return { asOf: new Date().toISOString(), stocks: out }; }
+    case "news": { const out = {}; const now = Math.floor(Date.now() / 1000); for (const line of scanLive().map.slice(0, 700)) { const sym = line.split("|")[0], t = Math.round(rnd() * 4 - 1.5);
+      out[sym] = { n48: Math.round(rnd() * 5), n7: Math.round(3 + rnd() * 8), tone48: t, tone7: t + Math.round(rnd() * 2 - 1), st: rnd() < 0.7 ? { bull: Math.round(rnd() * 20), bear: Math.round(rnd() * 8), n: 30, watch: 5000 } : undefined,
+        items: [{ t: `${sym} beats estimates and raises guidance`, p: "Wire", ts: now - 3600, l: "https://example.com/" + sym, s: 1 }, { t: `What to watch in ${sym} this week`, p: "Blog", ts: now - 86400, l: "https://example.com/w", s: 0 }] }; }
+      return { asOf: new Date().toISOString(), stocks: out }; }
+    case "trade": return mockTrade(req);
     case "health": return { ok: true, mode: "mock" };
     default: return null;
   }

@@ -14,6 +14,7 @@ It runs as a small website on Vercel: static front end in `public/`, serverless 
 | **Live chart** | TradingView chart for any market, CFD (real-time) or the futures contract the levels are built on | streaming |
 | **Markets** | 24 cards with live price, source badge, sparkline, ADR used, London drive; tap for the full drawer with live chart, playbook, key-level ladder, NY first-hour stats, COT and FINRA context | 5 s |
 | **S&P 500 scanner** | Breadth, cap-weighted heat map (pre-market / today / after hours, last session, edge score) or TradingView's live heat map, stocks in play, long and short setups, sectors, earnings in the next 7 days; tap any stock for its opening plan and live chart | 60 s |
+| **Strategy** (`/strategy`) | Your day-trade and long-term checklists scored on every stock (S&P 500, Nasdaq-100, all Nasdaq or your watchlist), with a plan per stock and one-click IC Markets (cTrader) orders behind a PIN. See "Strategy & IC Markets trading" below | 2–30 min |
 | **NY open brief** | Auto brief built from the live model; optionally written by Claude | 1 min / 30 min |
 | Edge lab, positioning & flow, calendar | First-hour behaviour over ~55 sessions, CFTC speculator positioning, FINRA off-exchange short share (DIX-style), this week's high/medium impact events | 2 min / 3 h / 15 min |
 | Journal & model | R-based trade journal with equity curve, adjustable model weights. Saved in your browser, with export and import | instant |
@@ -63,6 +64,7 @@ Or from a terminal: `npx vercel --prod`.
 | `/api/calendar` | This week's events in UK time | 15 min |
 | `/api/brief` | Claude brief (if `ANTHROPIC_API_KEY` is set) | 30 min |
 | `/api/health` | Connectivity check | none |
+| `/api/trade` | IC Markets (cTrader) bridge. `GET` shows what's configured; `POST {action, pin}` with `account`, `accounts`, `find`, `order`, `positions`, `close` | none |
 
 ## Local development
 
@@ -72,7 +74,7 @@ npm run dev        # real data (needs internet access to the sources above)
 npm test           # server data-layer tests with a fake network
 ```
 
-UI smoke test (Playwright for Python): start `MOCK=1 PORT=3100 node dev/server.mjs`, then `python3 dev/ui/shots.py`.
+UI smoke tests (Playwright for Python): start `MOCK=1 PORT=3100 node dev/server.mjs`, then `python3 dev/ui/shots.py` and `python3 dev/ui/strategy.py` (mock trading PIN: `demo-pin-123`).
 
 ## Project layout
 
@@ -83,6 +85,8 @@ public/index.html  page markup
 public/styles.css  glass UI
 public/model.js    shared scoring, playbooks, live overlay and briefs (browser + /api/brief)
 public/app.js      live polling, rendering, TradingView embeds, journal, snapshot
+public/strategy.*  Strategy page; strategy-model.js holds the checklist rules (shared with the tests)
+api/_lib/ctrader.js  cTrader Open API client (JSON over WebSocket) used by api/trade.js
 dev/               local server, mock API, fixtures, tests
 ```
 
@@ -102,3 +106,42 @@ dev/               local server, mock API, fixtures, tests
 3. In Vercel set `EARTH_VIEW_URL` to the Render URL and redeploy.
 
 Free Render services sleep when idle; the page shows a loader while it wakes (up to a minute).
+
+
+## Strategy & IC Markets trading
+
+The Strategy page (`/strategy`) scores every stock against two checklists. A tick means that signal lines up on public data; it is not a prediction.
+
+**Day trade** (around the New York open, 14:30 UK; 13:30 for the two weeks a year when the UK and US clocks change on different dates):
+RSI 50–72 and rising · volume above its 20-day average · positive headline tone or bullish StockTwits · big institutions or index ETFs hold it · price above the 20-day, 20-day above the 50-day and rising · more call volume than puts · analysts at Buy or better.
+Plan: pre-market check at 14:00, buy the 14:30 open or the first dip that reclaims yesterday's close, take 1–3% and sell before yesterday's high.
+
+**Long term:** RSI ≥ 50 on each of the last 5 days · KST above its signal on each of the last 5 days · earnings 2–10 days away (the week-before buying window) with no bad news · institutions/index ETFs hold it · more call open interest than puts · analysts at Buy with target upside · dividend yield ≥ 2.5%.
+
+Every threshold can be changed under **Rules & thresholds** (saved in your browser).
+
+Data comes from new data-engine jobs: `fund` (analysts, fund holders, dividends, earnings date; twice a day), `news` (Yahoo headlines + StockTwits for a technical shortlist; hourly, every ~20 min from 12:00–15:30 UK) and the existing `scan`, `deep` and `options` jobs. KST and 5-day RSI arrive with the next `scan-hist` run.
+
+### Connect IC Markets (cTrader Open API)
+
+Only **cTrader** accounts have an API that the site can use. MT4/MT5 accounts can't be connected this way; you can add a cTrader account (demo or live) in the IC Markets client area.
+
+1. Sign in at **https://openapi.ctrader.com** with your cTrader ID and create an application. Approval can take a little while.
+2. When it's approved, open the app's **Playground**, choose the **trading** scope and press **Get token**. Copy the access token.
+3. In Vercel → your project → Settings → Environment Variables, add:
+
+| Variable | Value |
+| --- | --- |
+| `CTRADER_CLIENT_ID` | the app's Client ID |
+| `CTRADER_CLIENT_SECRET` | the app's Secret |
+| `CTRADER_ACCESS_TOKEN` | the Playground access token (lasts ~30 days) |
+| `CTRADER_ENV` | `demo` to start (`live` later) |
+| `TRADE_PIN` | a passphrase of 8+ characters you'll type to unlock trading |
+| `TRADE_MAX_USD` | largest order you allow, e.g. `1000` (default 2000) |
+| `CTRADER_ACCOUNT_ID` | leave empty for now |
+
+4. Redeploy, open `/strategy`, type your PIN in the IC Markets panel and press **Find my account IDs**. Put the demo account's ID into `CTRADER_ACCOUNT_ID` and redeploy again.
+5. Unlock with your PIN. You'll see the balance and open positions. Press **Buy** on any stock, check the ticket, and send a demo order. Use **Check IC symbol** if a ticker doesn't match IC's naming; you can pin a name with `CTRADER_SYMBOLS`, e.g. `{"AAPL":"AAPL.US"}`.
+6. Once demo orders, stops and targets look right in cTrader, switch `CTRADER_ENV` to `live`, set `CTRADER_ACCOUNT_ID` to the live account and redeploy. Live orders need an extra "real money" tick on every ticket.
+
+Safety rules built into `/api/trade`: every action needs the PIN (wrong PINs are slowed down); market buy orders only; a stop loss is always attached; one order is capped at `TRADE_MAX_USD`; at most 6 orders a minute; requests from other websites are refused; secrets never leave Vercel. The access token expires after about 30 days: get a new one from the Playground and update `CTRADER_ACCESS_TOKEN`.

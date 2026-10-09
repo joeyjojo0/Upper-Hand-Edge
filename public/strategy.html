@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UHE · Strategy</title>
+<meta name="description" content="Strategy: day-trade and long-term checklists scored on every stock, with one-click IC Markets (cTrader) orders.">
+<meta name="theme-color" content="#04060C">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Sora:wght@300;400;500;600;700&family=Azeret+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="strat-page">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="gridlines" aria-hidden="true"></div>
+<header class="hud">
+  <div class="hud-in">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00E5FF"/><stop offset="1" stop-color="#8A6CFF"/></linearGradient></defs><path d="M20 2 36 11v18L20 38 4 29V11z" fill="none" stroke="url(#lg)" stroke-width="2"/><path d="M12 14v8a8 8 0 0 0 16 0v-8" fill="none" stroke="url(#lg)" stroke-width="2.4" stroke-linecap="round"/><circle cx="20" cy="22" r="2.4" fill="#00E5FF"/></svg>
+      <div><b>UHE · NY OPEN</b><span>Upper Hand Edge command</span></div>
+    </div>
+    <div class="clocks"><span><small>LDN</small><b id="clkUK">--:--</b></span><span><small>NYC</small><b id="clkNY">--:--</b></span></div>
+    <div class="spacer"></div>
+    <div id="status" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <div class="live-stack">
+      <span class="live" id="liveChip" role="status"><i></i><span>CONNECTING</span></span>
+      <a class="aio" href="https://aione.london" target="_blank" rel="noopener" aria-label="Created by AIO, aione.london">
+        <span class="aio-by">Created by</span>
+        <span class="aio-mark"><img src="/aio-logo.png" alt="AIO" onerror="this.remove()"><b>AIO</b></span>
+      </a>
+    </div>
+  </div>
+  <nav class="jump" aria-label="Sections"><a href="/#edges">Top edges</a><a href="/#live-chart">Live chart</a><a href="/#matrix-sec">Markets</a><a href="/#stocks">Stocks</a><a class="nav-strat" href="/strategy" aria-current="page">Strategy</a><a href="/#brief-sec">Brief</a><a href="/#lab">Edge lab</a><a href="/#flow">Positioning &amp; flow</a><a href="/#calendar">Calendar</a><a href="/#journal">Journal</a><a href="/#model">Model</a><a class="nav-earth" href="/earth">Earth View</a></nav>
+</header>
+
+<main class="shell">
+  <section class="earth-head strat-head">
+    <div><div class="eyebrow">Your rules · scored on every stock · refreshed every 10 min</div><h2>Strategy</h2>
+      <p>Day trades around the New York open and longer holds, checked against your own checklist. Ticks mean the signals line up, not that the price will rise.</p></div>
+    <div class="ctrls" id="feedChips"></div>
+  </section>
+
+  <div class="strat-top">
+    <div class="glass pad phase" id="phase"><div class="eyebrow">Day-trade routine</div><div class="empty">Loading…</div></div>
+    <div class="glass pad broker" id="broker"><div class="eyebrow">IC Markets · cTrader</div><div class="empty">Checking connection…</div></div>
+  </div>
+
+  <div class="strat-bar">
+    <div class="tabs" role="group" aria-label="Strategy" id="modeTabs"><button data-m="day" aria-pressed="true">Day trade</button><button data-m="long" aria-pressed="false">Long term</button></div>
+    <div class="tabs" role="group" aria-label="Universe" id="univTabs"><button data-u="S" aria-pressed="true">S&amp;P 500</button><button data-u="N" aria-pressed="false">Nasdaq-100</button><button data-u="Q" aria-pressed="false">All Nasdaq</button><button data-u="W" aria-pressed="false">My watchlist</button></div>
+    <select class="sel" id="minPass" aria-label="Minimum ticks"><option value="7">All 7 ticks</option><option value="6">6+ ticks</option><option value="5" selected>5+ ticks</option><option value="4">4+ ticks</option><option value="0">Show all</option></select>
+    <input class="inp strat-q" id="q" placeholder="Search ticker" aria-label="Search ticker" autocomplete="off" spellcheck="false">
+    <button class="btn sm ghost" id="rulesBtn" aria-expanded="false" aria-controls="rules">Rules &amp; thresholds</button>
+  </div>
+
+  <div class="glass pad rules" id="rules" hidden></div>
+
+  <div class="glass strat-list" id="list"><div class="empty">Loading the scan…</div></div>
+  <p class="note">Data: Yahoo Finance (prices, RSI, KST, options, analysts, fund holders, dividends, earnings dates, headlines) and StockTwits (retail sentiment), refreshed by the UHE data engine. Headline tone is a simple keyword read, not AI. Orders go to your own IC Markets cTrader account through the cTrader Open API. Nothing here is investment advice.</p>
+</main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="glass drawer ticket" id="ticket" role="dialog" aria-modal="true" aria-labelledby="tkTitle" hidden>
+  <button class="btn sm" id="tkClose" aria-label="Close order ticket">Close</button>
+  <div id="tkBody"></div>
+</aside>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="/strategy.js"></script>
+</body>
+</html>

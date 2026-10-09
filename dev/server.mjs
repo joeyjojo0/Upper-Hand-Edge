@@ -13,7 +13,7 @@ const mock = MOCK ? await import("./mock.mjs") : null;
 
 async function api(name, req, res) {
   if (mock) {
-    const body = await mock.handle(name);
+    const body = await mock.handle(name, req);
     if (body == null) { res.statusCode = 404; return res.end("{}"); }
     res.setHeader("Content-Type", "application/json; charset=utf-8"); res.setHeader("Cache-Control", "no-store");
     return res.end(JSON.stringify(body));

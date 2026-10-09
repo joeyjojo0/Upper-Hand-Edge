@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Force refresh (all, or comma list: markets,scan-hist,flow,calendar)"
+        description: "Force refresh (all, or comma list: markets,scan-hist,scan,options,fund,news,flow,calendar)"
         required: false
         default: ""
 permissions:

@@ -20,7 +20,7 @@ function series(start, step, n, p0, vol, skipWeekend = true) {
 function chartJSON(sym, range, interval) {
   const p0 = sym === "SPY" ? 660 : sym === "ES=F" ? 6650 : 100 + sym.length * 10;
   let s;
-  if (interval === "1d") { const n = range === "1y" ? 365 : range === "3mo" ? 92 : 14; s = series(NOW - n * DAY, DAY, n, p0, 0.02); }
+  if (interval === "1d") { const n = range === "1y" ? 365 : range === "6mo" ? 183 : range === "3mo" ? 92 : 14; s = series(NOW - n * DAY, DAY, n, p0, 0.02); }
   else if (interval === "15m") { const n = range === "60d" ? 60 * 96 : 5 * 96; const st = Math.floor((NOW - n * 900) / 900) * 900; s = series(st, 900, n, p0, 0.003); }
   else if (interval === "1m") { const st = Math.floor((NOW - 600 * 60) / 60) * 60; s = series(st, 60, 590, p0, 0.0005, false); if (sym.endsWith("=F")) { s.c = s.c.map((x, i) => (sym === "ES=F" ? 10.07 : 1) * 660 * (1 + i * 1e-5)); } else if (sym === "SPY") { s.c = s.c.map((x, i) => 660 * (1 + i * 1e-5)); } }
   else { const st = Math.floor((NOW - 78 * 300) / 300) * 300; s = series(st, 300, 78, p0, 0.001, false); }
@@ -42,6 +42,13 @@ globalThis.fetch = async (url, opts = {}) => {
   if (url.includes("constituents.csv")) return new Response(CSV);
   if (url.includes("wikipedia.org")) { const rows = ["AAA", "NNN"].concat(Array.from({ length: 98 }, (_, i) => "Z" + String.fromCharCode(65 + (i % 26)) + String.fromCharCode(65 + Math.floor(i / 26)))); return json({ parse: { text: '<table id="constituents"><tr><th>Company</th><th>Ticker</th><th>GICS Sector</th></tr>' + rows.map(t => `<tr><td>${t} Co</td><td>${t}</td><td>Information Technology</td></tr>`).join("") + "</table>" } }); }
   if (url.includes("nasdaqlisted.txt")) { const L = ["Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares", "AAA|Alpha Inc - Common Stock|Q|N|N|100|N|N", "NNN|Enn Co - Class A Common Stock|Q|N|N|100|N|N", "QQQ|Invesco QQQ Trust|G|N|N|100|Y|N", "TSTX|Test Co|Q|Y|N|100|N|N", "ABCDW|Abc Corp - Warrant|Q|N|N|100|N|N", "BADD|Bad Co - Common Stock|Q|N|D|100|N|N", "PFDX|Pfd Co - 7.5% Series A Preferred Stock|Q|N|N|100|N|N"]; for (let i = 0; i < 1000; i++) L.push(`Q${String.fromCharCode(65 + (i % 26))}${String.fromCharCode(65 + Math.floor(i / 26) % 26)}${String.fromCharCode(65 + Math.floor(i / 676))}|Q${i} Holdings - Common Stock|S|N|N|100|N|N`); L.push("File Creation Time: 1007202612:00|||||||"); return new Response(L.join("\n")); }
+  if (url.includes("/v10/finance/quoteSummary/")) { const sym = decodeURIComponent(new URL(url).pathname.split("/").pop()); if (sym === "FAIL") return json({}, 404);
+    return json({ quoteSummary: { result: [{ financialData: { currentPrice: { raw: 100 }, targetMeanPrice: { raw: 115, fmt: "115" }, recommendationMean: { raw: 1.8 }, recommendationKey: "buy", numberOfAnalystOpinions: { raw: 30 } },
+      summaryDetail: { dividendYield: { raw: 0.031 }, exDividendDate: { raw: NOW + 20 * DAY } }, majorHoldersBreakdown: { institutionsPercentHeld: { raw: 0.72 } },
+      recommendationTrend: { trend: [{ period: "0m", strongBuy: 10, buy: 12, hold: 6, sell: 1, strongSell: 1 }] }, calendarEvents: { earnings: { earningsDate: [{ raw: NOW + 6 * DAY }] } },
+      fundOwnership: { ownershipList: [{ organization: "Vanguard Total Stock Market Index Fund", pctHeld: { raw: 0.031 } }, { organization: "SPDR S&P 500 ETF Trust", pctHeld: { raw: 0.012 } }, { organization: "Fidelity Contrafund", pctHeld: { raw: 0.01 } }] } }] } }); }
+  if (url.includes("/v1/finance/search")) return json({ news: [{ title: "Acme beats estimates and raises guidance", publisher: "Wire", providerPublishTime: NOW - 3600, link: "https://x/1" }, { title: "Acme faces probe over accounting", publisher: "Wire", providerPublishTime: NOW - 4 * DAY }, { title: "Acme stock: what to know", publisher: "Blog", providerPublishTime: NOW - 7200 }] });
+  if (url.includes("stocktwits")) return json({ symbol: { watchlist_count: 1234 }, messages: [1, 2, 3, 4, 5, 6, 7].map(i => ({ id: i, entities: { sentiment: i <= 5 ? { basic: "Bullish" } : i === 6 ? { basic: "Bearish" } : null } })) });
   if (url.includes("cdn.finra.org")) { const rows = ["Date|Symbol|ShortVolume|ShortExemptVolume|TotalVolume|Market"]; for (const s of ["SPY", "QQQ", "DIA", "IWM", "GLD", "TLT", "HYG", "XLF", "XLK", "SMH"]) rows.push(`x|${s}|${Math.round(5e5 + rnd() * 1e5)}|0|1000000|B,Q,N`); return new Response(rows.join("\n") + "\n" + "#".repeat(1200)); }
   if (url.includes("publicreporting.cftc.gov")) { const out = []; for (let w = 0; w < 60; w++) for (const code of Object.values(core.COT_CODES)) out.push({ report_date_as_yyyy_mm_dd: new Date((NOW - (60 - w) * 7 * DAY) * 1000).toISOString().slice(0, 10) + "T00:00:00.000", cftc_contract_market_code: code, market_and_exchange_names: "TEST - CME", noncomm_positions_long_all: String(1000 + w * 10), noncomm_positions_short_all: "900", open_interest_all: "5000" }); return json(out); }
   if (url.includes("faireconomy")) return json([{ title: "CPI m/m", country: "USD", date: "2026-09-29T08:30:00-04:00", impact: "High", forecast: "0.3%", previous: "0.2%" }, { title: "Bank Holiday", country: "JPY", date: "2026-09-30T00:00:00-04:00", impact: "Holiday", forecast: "", previous: "" }, { title: "Low thing", country: "USD", date: "2026-09-29T10:00:00-04:00", impact: "Low" }]);
@@ -102,6 +109,21 @@ test("scanHist() + scanLive(): scores, breadth and the heat-map rows", async () 
   const sp = parseScan(L); assert.equal(sp.rows.length, 3); assert.equal(sp.rows[0].tv, "NASDAQ");
   assert.equal(parseScan(L, "ndx").rows.length, 100); assert.equal(parseScan(L, "nasdaq").rows.length, 1100); assert.equal(parseScan(L, "all").rows.length, 1102);
   assert.equal(parseScan(L, "nasdaq").names[11], "Other Nasdaq");
+});
+
+test("strategy data: RSI history, KST, fundamentals, news", async () => {
+  const c = Array.from({ length: 80 }, (_, i) => 100 + i * 0.5 + Math.sin(i / 3));
+  const rs = core.rsiSeries(c); assert.equal(rs.length, 80); assert.equal(rs[10], null); assert.ok(Math.abs(rs[79] - core.rsi(c)) < 1e-9, "series ends at rsi()");
+  const k = core.kstSeries(c); assert.equal(k.kst[40], null); assert.ok(k.kst[79] > 0 && k.sig[79] != null, "rising series has positive KST");
+  const H = await core.scanHist(); const a = H.rows.find(r => r.s === "AAA");
+  assert.equal(a.rsi5.length, 5); assert.equal(a.kst5.length, 5); assert.equal(typeof a.sma20up, "boolean");
+  const F = await core.fundamentalsFor(["AAA", "FAIL"]); const f = F.stocks.AAA;
+  assert.equal(F.fails, 1); assert.equal(f.rm, 1.8); assert.equal(f.na, 30); assert.equal(f.up, 15); assert.equal(f.dy, 3.1); assert.equal(f.inst, 72);
+  assert.equal(f.etfN, 2, "Vanguard index fund + SPDR ETF, not Contrafund"); assert.equal(f.sb, 10); assert.ok(f.erd);
+  const N = await core.newsFor(["AAA"]); const n = N.stocks.AAA;
+  assert.equal(n.n48, 2); assert.equal(n.tone48, 1); assert.equal(n.n7, 3); assert.equal(n.tone7, 0); assert.equal(n.items[0].s, 1);
+  assert.deepEqual(n.st, { bull: 5, bear: 1, n: 7, watch: 1234 }); assert.equal(N.stocktwits, true);
+  assert.equal(core.headlineTone("Shares plunge after downgrade"), -1); assert.equal(core.headlineTone("Record quarter"), 1);
 });
 
 test("finra(), cot(), calendar() parse the public files", async () => {
