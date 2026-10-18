@@ -3,6 +3,8 @@
 // Each file has its own refresh age so the heavy jobs (500-stock history, COT/FINRA) run rarely.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { markets, liveQuotes, basis, scanHist, scanLive, finra, cot, calendar, optionsFor, fundamentalsFor, newsFor, pulse } from "../api/_lib/core.js";
+import { patternsFor, FAST, SLOW } from "../api/_lib/patterns-data.js";
+import { rank, normRules } from "../public/strategy-model.js";
 
 const OUT = process.argv[2] || "out";
 const MIN = 60e3;
@@ -49,8 +51,37 @@ if (CAND.length) await job("news", async () => {
     const day = d.rsi >= 50 && (d.rvol || 0) >= 1 && d.px > (d.sma20 || Infinity);
     const long = all5(d.rsi5, v => v >= 50) || (Array.isArray(d.kst5) && Array.isArray(d.kstSig5) && d.kst5.every((v, i) => v != null && d.kstSig5[i] != null && v > d.kstSig5[i]));
     return day || long || hot.has(r.s); }).sort((a, b) => (hot.has(b.s) - hot.has(a.s)) || b.adv20 * b.pdc - a.adv20 * a.pdc).slice(0, 220).map(r => r.s);
-  return newsFor(pick.length ? pick : CAND.slice(0, 100).map(r => r.s));
+  return newsFor(pick.length ? pick : CAND.slice(0, 100).map(r => r.s), { prev: await read("news") });
 });
+// Chart patterns on 1m–1w for the checklist shortlist. Intraday timeframes every run while US stocks trade
+// (pre-market included); 1h/4h/1d/1w hourly. Names new to the list get every timeframe straight away.
+if (H && H.rows) {
+  const t0 = Date.now(), prev = await read("patterns"), ageMin = tf => prev && prev.tfAsOf && prev.tfAsOf[tf] ? (Date.now() - Date.parse(prev.tfAsOf[tf])) / 60e3 : Infinity;
+  const session = !["Sat", "Sun"].includes(ukNow.weekday) && ukMin >= 540 && ukMin <= 1275, forced = force.has("patterns") || force.has("all");
+  const fastDue = forced || ageMin("1m") >= (session ? 0 : 180), slowDue = forced || ageMin("1d") >= (session ? 55 : 360);
+  try {
+    const D = ((await read("deep")) || {}).stocks || {}, O = ((await read("options")) || {}).chains || {}, F = ((await read("fund")) || {}).stocks || {};
+    const N = { ...(((await read("news")) || {}).stocks || {}) }, P = (await read("pulse")) || {};
+    for (const [s, rd] of Object.entries(P.reddit || {})) N[s] = { ...(N[s] || {}), rd };
+    const R = normRules({}), best = (mode, take) => [...new Map(["S", "Q"].flatMap(u => rank(mode, D, O, F, N, R, { u, minPass: 5 })).map(r => [r.s, r])).values()]
+      .sort((a, b) => b.pass - a.pass || (b.d.score || 0) - (a.d.score || 0)).slice(0, take).map(r => r.s);
+    const hot = [...(P.redditTop || []), ...(P.stTrend || [])].map(x => x.s).filter(s => D[s]).slice(0, 15);
+    const list = [...new Set([...best("day", 70), ...best("long", 30), ...hot])].slice(0, 110);
+    if (!list.length || (!fastDue && !slowDue && list.every(s => prev && prev.stocks && prev.stocks[s]))) log.push(`patterns: fresh (${prev && prev.asOf})`);
+    else {
+      let out = prev && prev.stocks ? { ...prev, stocks: Object.fromEntries(list.filter(s => prev.stocks[s]).map(s => [s, prev.stocks[s]])) } : null;
+      const newNames = list.filter(s => !(out && out.stocks[s]));
+      out = await patternsFor(fastDue ? list : newNames, { tfs: FAST, prev: out });
+      if (!fastDue && prev && prev.tfAsOf) for (const tf of FAST) out.tfAsOf[tf] = prev.tfAsOf[tf] || out.tfAsOf[tf];
+      const slowList = slowDue ? list : list.filter(s => !(out.stocks[s] && out.stocks[s]["1d"]));
+      if (slowList.length) out = await patternsFor(slowList, { tfs: SLOW, prev: out });
+      if (!slowDue && prev && prev.tfAsOf) for (const tf of SLOW) out.tfAsOf[tf] = prev.tfAsOf[tf] || out.tfAsOf[tf];
+      out.list = list;
+      await writeFile(`${OUT}/patterns.json`, JSON.stringify(out));
+      log.push(`patterns: ok in ${((Date.now() - t0) / 1000).toFixed(1)}s (${list.length} stocks${fastDue ? ", 1m–30m" : ""}${slowDue ? ", 1h–1w" : ""})`);
+    }
+  } catch (e) { log.push("patterns: FAILED " + e.message); }
+}
 await job("flow", async () => {
   const [f, c] = await Promise.allSettled([finra(), cot()]);
   const v = r => r.status === "fulfilled" ? r.value : { error: String(r.reason && r.reason.message || r.reason) };

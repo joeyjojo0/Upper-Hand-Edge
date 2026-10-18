@@ -35,6 +35,36 @@ test("news check: SEC filings and Reddit buzz", () => {
   assert.equal(evalLong(good, O, F, { ...N, secf: { red: true } }, R.long, NOW).earn.pass, false);
 });
 
+test("tick 8: insiders & firms; tick 9: chart pattern (up to 9 confluences)", () => {
+  const now = Date.parse("2026-10-08T12:00:00Z"), day = n => new Date(now - n * 864e5).toISOString().slice(0, 10);
+  // nothing known → neutral; known but quiet → fail
+  assert.equal(evalDay(good, O, undefined, undefined, R.day, null, now).firms.pass, null);
+  assert.equal(evalDay(good, O, { whales: [["Vanguard", 8, 1, "2026-06-30"]] }, {}, R.day, null, now).firms.pass, false);
+  // a CFO buys $100k on the open market (SEC Form 4)
+  const N1 = { f4: [{ a: "1", n: "SMITH JOHN", role: "Chief Financial Officer", buy: { sh: 2500, v: 100000, px: 40, d: day(3) }, u: "https://www.sec.gov/x" }] };
+  const f1 = evalDay(good, O, {}, N1, R.day, null, now).firms; assert.equal(f1.pass, true); assert.match(f1.val, /Chief Financial Officer bought \$100k/);
+  // two insiders = cluster; tiny buys and 40-day-old buys don't count
+  const N2 = { f4: [N1.f4[0], { a: "2", n: "DOE JANE", role: "Director", buy: { sh: 100, v: 60000, px: 40, d: day(10) } }, { a: "3", n: "OLD MAN", role: "Director", buy: { v: 900000, d: day(40) } }] };
+  assert.match(evalDay(good, O, {}, N2, R.day, null, now).firms.val, /2 insiders bought \$160k/);
+  assert.equal(evalDay(good, O, {}, { f4: [{ a: "4", n: "X", role: "Director", buy: { v: 5000, d: day(1) } }] }, R.day, null, now).firms.pass, false);
+  // firms: 3 of the top 10 added 5%+ last quarter, a whale (10% owner) buy, a 13D
+  assert.equal(evalDay(good, O, { whales: [["A", 5, 6], ["B", 4, 9], ["C", 3, 12], ["D", 2, -3]] }, {}, R.day, null, now).firms.pass, true);
+  assert.equal(evalDay(good, O, {}, { f4: [{ a: "5", n: "BIG FUND LP", role: "10% owner", ten: true, buy: { v: 5e6, d: day(2) } }] }, R.day, null, now).firms.pass, true);
+  assert.equal(evalDay(good, O, {}, { secf: { act: true } }, R.day, null, now).firms.pass, true);
+  // patterns: bullish 5m flag passes; a fresher bearish breakdown on a higher timeframe vetoes; long term reads 4h–1w only
+  const bull = { "5m": [{ id: "bflag", name: "Bull flag", bias: "bull", status: "forming", conf: 70 }] };
+  assert.equal(evalDay(good, O, F, N, R.day, null, now).pattern.pass, null);
+  assert.match(evalDay(good, O, F, N, R.day, bull, now).pattern.val, /Bull flag on 5m · forming/);
+  assert.equal(evalDay(good, O, F, N, R.day, { ...bull, "1h": [{ id: "dt", name: "Double top", bias: "bear", status: "breakdown", conf: 75 }] }, now).pattern.pass, false);
+  assert.equal(evalDay(good, O, F, N, R.day, { "5m": [{ ...bull["5m"][0], conf: 40 }] }, now).pattern.pass, false, "below the quality bar");
+  assert.equal(evalLong(good, O, F, N, R.long, new Date(now), bull).pattern.pass, false, "a 5m flag is not a long-term signal");
+  assert.equal(evalLong(good, O, F, N, R.long, new Date(now), { "1w": [{ id: "cup", name: "Cup & handle", bias: "bull", status: "breakout", conf: 80 }] }).pattern.pass, true);
+  // the screen now scores out of 9 on both lists
+  const rows = rank("day", { AAA: good }, { AAA: O }, { AAA: { ...F, whales: [["A", 5, 6], ["B", 4, 9], ["C", 3, 12]] } }, { AAA: N }, R, { pat: { AAA: bull } });
+  assert.equal(rows[0].pass, 9); assert.equal(Object.keys(rows[0].c).length, 9);
+  assert.equal(Object.keys(rank("long", { AAA: good }, { AAA: O }, { AAA: F }, { AAA: N }, R, { now: NOW })[0].c).length, 9);
+});
+
 test("day plan: 1–3% target, capped just under the previous high", () => {
   const p = dayPlan(good, R.day);
   assert.equal(p.entry, 101); assert.ok(p.capped, "2% target (103.02) is above the prior high 102.5");

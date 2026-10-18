@@ -31,6 +31,8 @@ class FakeWS {
         for (const s of p.symbolId) { this.reply({ payloadType: 2131, payload: { ctidTraderAccountId: A, symbolId: s, bid: 19990000 } }); this.reply({ payloadType: 2131, payload: { ctidTraderAccountId: A, symbolId: s, ask: 20000000 } }); }
         return;
       case 2129: return;
+      case 2137: { const n = Math.min(p.count || 10, 5), step = { 1: 1, 5: 5, 6: 10, 8: 30, 9: 60, 10: 240, 12: 1440, 13: 10080 }[p.period];
+        return this.reply({ clientMsgId: id, payloadType: 2138, payload: { ctidTraderAccountId: A, period: p.period, symbolId: p.symbolId, trendbar: Array.from({ length: n }, (_, i) => ({ volume: 100 + i, low: 19900000 + i * 1000, deltaOpen: 5000, deltaHigh: 20000, deltaClose: 15000, utcTimestampInMinutes: Math.floor(p.toTimestamp / 60000) - (n - i) * step })) } }); }
       case 2121: return this.reply({ clientMsgId: id, payloadType: 2122, payload: { trader: { ctidTraderAccountId: A, balance: 1234567, moneyDigits: 2, depositAssetId: 7, leverageInCents: 3000, traderLogin: 9001, brokerName: "IC Markets" } } });
       case 2112: return this.reply({ clientMsgId: id, payloadType: 2113, payload: { asset: [{ assetId: 7, name: "USD", displayName: "USD" }] } });
       case 2124: return this.reply({ clientMsgId: id, payloadType: 2125, payload: { ctidTraderAccountId: A, position: POS } });
@@ -46,7 +48,7 @@ class FakeWS {
   }
 }
 const ENV = { CTRADER_CLIENT_ID: "id", CTRADER_CLIENT_SECRET: "sec", CTRADER_ACCESS_TOKEN: "tok", CTRADER_ACCOUNT_ID: "4242", TRADE_PIN: "correct horse", TRADE_MAX_USD: "5000" };
-const deps = { WS: FakeWS, pinDelay: 0 };
+const deps = { WS: FakeWS, pinDelay: 0, barPause: 0 };
 function call(body, method = "POST", cfgEnv = ENV, headers = {}) {
   return new Promise(resolve => {
     const res = { h: {}, setHeader(k, v) { this.h[k] = v; }, end(b) { resolve({ code: this.statusCode, body: JSON.parse(b) }); } };
@@ -117,4 +119,15 @@ test("order guards: cap, stop required, live confirm, broker rejection, bad toke
 
 test("run() is usable directly", async () => {
   const r = await run("check", {}, readConfig(ENV), deps); assert.equal(r.ok, true);
+});
+
+test("bars: live candles on all eight timeframes for the pattern scan", async () => {
+  LOG = [];
+  const r = await call({ action: "bars", pin: "correct horse", symbol: "AAPL" });
+  assert.equal(r.body.ok, true); assert.equal(r.body.symbol, "AAPL.US");
+  assert.deepEqual(Object.keys(r.body.bars), ["1m", "5m", "10m", "30m", "1h", "4h", "1d", "1w"]);
+  const [t, o, h, l, c, v] = r.body.bars["5m"][0];
+  assert.equal(l, 199); assert.equal(o, 199.05); assert.equal(h, 199.2); assert.equal(c, 199.15); assert.equal(v, 100);
+  assert.ok(r.body.bars["5m"][1][0] - t === 300, "bars are oldest first, 5 minutes apart");
+  assert.deepEqual(LOG.filter(m => m.payloadType === 2137).map(m => m.payload.period), [1, 5, 6, 8, 9, 10, 12, 13]);
 });

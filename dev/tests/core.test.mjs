@@ -31,7 +31,7 @@ function quoteJSON(symbols) {
   return { quoteResponse: { result: symbols.map(sym => ({ symbol: sym, regularMarketPrice: 100, regularMarketPreviousClose: 99, regularMarketChangePercent: 1.0101, regularMarketTime: NOW - 5, regularMarketDayHigh: 101, regularMarketDayLow: 98, marketState: "PRE", preMarketPrice: 100.5, preMarketChangePercent: 0.5, preMarketTime: NOW - 2, exchangeDataDelayedBy: sym.endsWith("=F") ? 10 : 0, fiftyDayAverage: 95, twoHundredDayAverage: 90, marketCap: 5e11, averageDailyVolume3Month: 5e6, exchange: "NMS", fiftyTwoWeekHigh: 110, earningsTimestamp: NOW + 2 * DAY })) } };
 }
 const CSV = "Symbol,Security,GICS Sector,GICS Sub-Industry\nAAA,Alpha Inc,Information Technology,X\nBBB,Beta Corp,Financials,Y\nBRK.B,Berkshire Hathaway,Financials,Z\n";
-let crumbOK = true, quoteOK = true, calls = [];
+let crumbOK = true, quoteOK = true, calls = [], F4_CALLS = 0;
 globalThis.fetch = async (url, opts = {}) => {
   url = String(url); calls.push(url);
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
@@ -46,11 +46,18 @@ globalThis.fetch = async (url, opts = {}) => {
     return json({ quoteSummary: { result: [{ financialData: { currentPrice: { raw: 100 }, targetMeanPrice: { raw: 115, fmt: "115" }, recommendationMean: { raw: 1.8 }, recommendationKey: "buy", numberOfAnalystOpinions: { raw: 30 } },
       summaryDetail: { dividendYield: { raw: 0.031 }, exDividendDate: { raw: NOW + 20 * DAY } }, majorHoldersBreakdown: { institutionsPercentHeld: { raw: 0.72 } },
       recommendationTrend: { trend: [{ period: "0m", strongBuy: 10, buy: 12, hold: 6, sell: 1, strongSell: 1 }] }, calendarEvents: { earnings: { earningsDate: [{ raw: NOW + 6 * DAY }] } },
+      insiderTransactions: { transactions: [{ filerName: "JANE CEO", filerRelation: "Chief Executive Officer", transactionText: "Purchase at price 98.50 per share.", shares: { raw: 10000 }, value: { raw: 985000 }, startDate: { raw: NOW - 5 * DAY } },
+        { filerName: "BOB DIRECTOR", filerRelation: "Director", transactionText: "Sale at price 101.00 per share.", shares: { raw: 2000 }, value: { raw: 202000 }, startDate: { raw: NOW - 9 * DAY } },
+        { filerName: "OLD BUYER", filerRelation: "Director", transactionText: "Purchase at price 50.00 per share.", shares: { raw: 100 }, value: { raw: 5000 }, startDate: { raw: NOW - 200 * DAY } },
+        { filerName: "JANE CEO", filerRelation: "Chief Executive Officer", transactionText: "Stock Award(Grant) at price 0.00 per share.", shares: { raw: 5000 }, value: { raw: 0 }, startDate: { raw: NOW - 3 * DAY } }] },
+      netSharePurchaseActivity: { period: "6m", buyInfoCount: { raw: 3 }, sellInfoCount: { raw: 1 }, netInfoShares: { raw: 12000 }, netPercentInsiderShares: { raw: 0.012 } },
+      institutionOwnership: { ownershipList: [{ organization: "Vanguard Group Inc", pctHeld: { raw: 0.085 }, pctChange: { raw: 0.021 }, reportDate: { raw: NOW - 60 * DAY } }, { organization: "Citadel Advisors", pctHeld: { raw: 0.011 }, pctChange: { raw: 0.65 }, reportDate: { raw: NOW - 60 * DAY } }] },
       fundOwnership: { ownershipList: [{ organization: "Vanguard Total Stock Market Index Fund", pctHeld: { raw: 0.031 } }, { organization: "SPDR S&P 500 ETF Trust", pctHeld: { raw: 0.012 } }, { organization: "Fidelity Contrafund", pctHeld: { raw: 0.01 } }] } }] } }); }
   if (url.includes("/v1/finance/search")) return json({ news: [{ title: "Acme beats estimates and raises guidance", publisher: "Wire", providerPublishTime: NOW - 3600, link: "https://x/1" }, { title: "Acme faces probe over accounting", publisher: "Wire", providerPublishTime: NOW - 4 * DAY }, { title: "Acme stock: what to know", publisher: "Blog", providerPublishTime: NOW - 7200 }] });
   if (url.includes("sec.gov/files/company_tickers.json")) return json({ 0: { cik_str: 320193, ticker: "AAA", title: "Alpha" }, 1: { cik_str: 1067983, ticker: "BRK-B", title: "Berkshire" } });
   if (url.includes("data.sec.gov/submissions/CIK0000320193.json")) { const d = n => new Date(Date.now() - n * DAY * 1000).toISOString().slice(0, 10);
     return json({ filings: { recent: { form: ["8-K", "4", "424B5", "SC 13D", "10-Q"], filingDate: [d(0), d(1), d(2), d(3), d(30)], items: ["2.02,9.01", "", "", "", ""], accessionNumber: ["0000320193-26-000001", "a", "b", "c", "d"], primaryDocument: ["x8k.htm", "f4.xml", "p.htm", "s.htm", "q.htm"], acceptanceDateTime: [new Date().toISOString(), "", "", "", ""] } } }); }
+  if (url.endsWith("/f4.xml")) { F4_CALLS++; return new Response(`<ownershipDocument><aff10b5One>0</aff10b5One><reportingOwner><reportingOwnerId><rptOwnerName>SMITH JOHN</rptOwnerName></reportingOwnerId><reportingOwnerRelationship><isDirector>1</isDirector><isOfficer>1</isOfficer><officerTitle>Chief Financial Officer</officerTitle><isTenPercentOwner>0</isTenPercentOwner></reportingOwnerRelationship></reportingOwner><nonDerivativeTable><nonDerivativeTransaction><transactionDate><value>${new Date(Date.now() - DAY * 1000).toISOString().slice(0, 10)}</value></transactionDate><transactionCoding><transactionCode>P</transactionCode></transactionCoding><transactionAmounts><transactionShares><value>2500</value></transactionShares><transactionPricePerShare><value>40.00</value></transactionPricePerShare><transactionAcquiredDisposedCode><value>A</value></transactionAcquiredDisposedCode></transactionAmounts></nonDerivativeTransaction><nonDerivativeTransaction><transactionDate><value>2026-01-01</value></transactionDate><transactionCoding><transactionCode>M</transactionCode></transactionCoding><transactionAmounts><transactionShares><value>99</value></transactionShares><transactionPricePerShare><value>1</value></transactionPricePerShare></transactionAmounts></nonDerivativeTransaction></nonDerivativeTable></ownershipDocument>`); }
   if (url.includes("finnhub.io/api/v1/news")) return json([{ headline: "Stocks rally as yields ease", source: "CNBC", datetime: NOW - 600, url: "https://x/w1", related: "" }, { headline: "Oil slumps on supply", source: "Reuters", datetime: NOW - 1200, url: "https://x/w2", related: "" }]);
   if (url.includes("apewisdom.io")) return json({ count: 3, pages: 1, current_page: 1, results: [{ rank: 1, ticker: "AAA", name: "Alpha", mentions: "120", upvotes: "900", rank_24h_ago: "5", mentions_24h_ago: "30" }, { rank: 2, ticker: "BBB", name: "Beta", mentions: "40", upvotes: "100", rank_24h_ago: "1", mentions_24h_ago: "80" }, { rank: 3, ticker: "ZZZ", name: "Z", mentions: "3", upvotes: "1", rank_24h_ago: "9", mentions_24h_ago: "1" }] });
   if (url.includes("stocktwits") && url.includes("trending")) return json({ symbols: [{ symbol: "AAA", title: "Alpha Inc", watchlist_count: 5000 }, { symbol: "QQQQ", title: "Q", watchlist_count: 10 }] });
@@ -131,7 +138,12 @@ test("strategy data: RSI history, KST, fundamentals, news", async () => {
   assert.deepEqual(n.st, { bull: 5, bear: 1, n: 7, watch: 1234 }); assert.equal(N.stocktwits, true);
   assert.equal(core.headlineTone("Shares plunge after downgrade"), -1); assert.equal(core.headlineTone("Record quarter"), 1);
   // SEC EDGAR: earnings 8-K, insider Form 4, share offering (dilution) and a 13D stake; the 30-day-old 10-Q is outside the window
-  assert.equal(N.sec, true); assert.equal(n.sec.length, 4); assert.equal(n.sec[0].k, "earn"); assert.match(n.sec[0].l, /Earnings release/);
+  assert.equal(N.sec, true); assert.equal(n.sec.length, 3, "Form 4s move to the insider list");
+  assert.equal(n.f4.length, 1); assert.deepEqual({ n: n.f4[0].n, role: n.f4[0].role, buy: n.f4[0].buy.v, sell: n.f4[0].sell }, { n: "SMITH JOHN", role: "Chief Financial Officer", buy: 100000, sell: null });
+  const calls0 = F4_CALLS, N2 = await core.newsFor(["AAA"], { prev: N }); assert.equal(F4_CALLS, calls0, "parsed Form 4s are reused, not refetched"); assert.equal(N2.stocks.AAA.f4[0].buy.sh, 2500);
+  // insiders and 13F whales from Yahoo
+  const ow = F.stocks.AAA; assert.equal(ow.ib.nb, 1, "the 200-day-old buy and the stock award are ignored"); assert.equal(ow.ib.buys[0].n, "JANE CEO"); assert.equal(ow.ib.buys[0].px, 98.5); assert.equal(ow.ib.ns, 1);
+  assert.deepEqual(ow.n6, { b: 3, s: 1, net: 12000, pct: 1.2 }); assert.equal(ow.whales[1][0], "Citadel Advisors"); assert.equal(ow.whales[1][2], 65); assert.equal(n.sec[0].k, "earn"); assert.match(n.sec[0].l, /Earnings release/);
   assert.equal(n.sec[0].u, "https://www.sec.gov/Archives/edgar/data/320193/000032019326000001/x8k.htm");
   assert.deepEqual(n.secf, { dil: true, red: false, act: true, ins: 1, n: 3 });
   assert.equal(core.pubTier("Reuters"), "pro"); assert.equal(core.pubTier("Motley Fool"), "op"); assert.equal(core.pubTier("Some Blog"), "");
@@ -172,4 +184,15 @@ test("model: live overlay, ETF nowcast, scoring and briefs", async () => {
   assert.match(autoBrief(M, null, null).text, /## Best setups/);
   assert.match(briefPrompt(M, null, null), /Tone, Best setups/);
   assert.ok([810, 870].includes(nyOpenUKMin("2026-10-27")) && nyOpenUKMin("2026-10-27") === 810, "US/UK DST gap week");
+});
+
+test("patternsFor(): every timeframe for each stock, merged with earlier runs", async () => {
+  const { patternsFor, FAST, SLOW } = await import("../../api/_lib/patterns-data.js");
+  const a = await patternsFor(["AAA", "BRK.B"], { tfs: FAST });
+  assert.deepEqual(Object.keys(a.stocks.AAA).sort(), ["10m", "1m", "30m", "5m"]);
+  for (const tf of FAST) assert.ok(Array.isArray(a.stocks.AAA[tf]));
+  assert.ok(calls.some(u => u.includes("/chart/BRK-B?")), "Yahoo symbol for BRK.B");
+  const b = await patternsFor(["AAA"], { tfs: SLOW, prev: a });
+  assert.deepEqual(Object.keys(b.stocks.AAA).sort(), ["10m", "1d", "1h", "1m", "1w", "30m", "4h", "5m"]);
+  assert.ok(b.stocks["BRK.B"], "stocks not in this run are kept"); assert.ok(b.tfAsOf["1m"] && b.tfAsOf["1w"]);
 });

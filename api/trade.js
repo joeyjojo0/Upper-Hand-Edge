@@ -1,13 +1,13 @@
 // IC Markets (cTrader) trading bridge for the Strategy page.
 //   GET  /api/trade                       → what's configured (no secrets, no balances)
-//   POST /api/trade {action, pin, ...}    → account | accounts | find | order | positions | close  (PIN required)
+//   POST /api/trade {action, pin, ...}    → account | accounts | find | bars | order | positions | close  (PIN required)
 // Secrets live only in Vercel environment variables:
 //   CTRADER_CLIENT_ID, CTRADER_CLIENT_SECRET, CTRADER_ACCESS_TOKEN, CTRADER_ACCOUNT_ID,
 //   CTRADER_ENV (demo | live, default demo), TRADE_PIN (8+ characters), TRADE_MAX_USD (default 2000),
 //   CTRADER_SYMBOLS (optional JSON, e.g. {"AAPL":"AAPL.US"} to pin a broker symbol name).
 // Safety: market orders only, a stop loss is mandatory, one notional cap per order, live trading needs an extra confirm.
 import { createHash, timingSafeEqual } from "node:crypto";
-import { CTrader, CTraderError, matchSymbol, toVolume, relDistance, sideName } from "./_lib/ctrader.js";
+import { CTrader, CTraderError, matchSymbol, toVolume, relDistance, sideName, TF_PERIOD } from "./_lib/ctrader.js";
 
 export function readConfig(E = process.env) {
   let symbols = {}; try { symbols = JSON.parse(E.CTRADER_SYMBOLS || "{}"); } catch { /* ignore bad JSON */ }
@@ -64,6 +64,22 @@ export async function run(action, body, cfg, deps = {}) {
     case "accounts": return { ok: true, env: cfg.env, accounts: await session(cfg, deps, c => c.accounts(), false) };
     case "account": return session(cfg, deps, async c => ({ ok: true, env: cfg.env, account: await c.trader(), positions: await positions(c) }));
     case "positions": return session(cfg, deps, async c => ({ ok: true, env: cfg.env, positions: await positions(c) }));
+    case "bars": { // live candles on every pattern timeframe, for the Strategy page's "Scan live" button
+      const symbol = String(body.symbol || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+      const tfs = (Array.isArray(body.tfs) ? body.tfs : Object.keys(TF_PERIOD)).filter(t => TF_PERIOD[t]);
+      return session(cfg, deps, async c => {
+        const m = matchSymbol(await c.symbols(), symbol, cfg.symbols)[0];
+        if (!m || m.score < 60) throw new CTraderError("NO_MATCH", `IC Markets cTrader has no symbol matching ${symbol}.`);
+        const out = {}, now = Date.now();
+        for (const tf of tfs) {
+          const [period, days] = TF_PERIOD[tf];
+          try { out[tf] = (await c.trendbars(m.id, period, now - days * 864e5, now)).map(b => [b.t, b.o, b.h, b.l, b.c, b.v]); }
+          catch (e) { try { out[tf] = (await c.trendbars(m.id, period, now - days * 432e5, now)).map(b => [b.t, b.o, b.h, b.l, b.c, b.v]); } catch (e2) { out[tf] = { error: e2.code || "ERROR" }; } }
+          await new Promise(r => setTimeout(r, deps.barPause ?? 220)); // historical requests: max 5 a second
+        }
+        return { ok: true, env: cfg.env, symbol: m.name, asOf: new Date().toISOString(), bars: out };
+      });
+    }
     case "find": return session(cfg, deps, async c => ({ ok: true, matches: matchSymbol(await c.symbols(), body.symbol, cfg.symbols).map(({ id, name, desc, score }) => ({ id, name, desc, score })) }));
     case "close": {
       const id = Number(body.positionId); if (!id) throw new CTraderError("BAD_REQUEST", "positionId missing");

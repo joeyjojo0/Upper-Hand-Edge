@@ -1,6 +1,7 @@
 // Offline mock API for local development and UI tests. Built from real snapshots saved on 28 Sep 2026
 // (dev/fixtures), with prices random-walking on every quote request. The S&P 500 heat-map values are synthetic.
 import { readFileSync } from "node:fs";
+import { findPatterns, TIMEFRAMES } from "../public/patterns.js";
 
 const F = n => JSON.parse(readFileSync(new URL("./fixtures/" + n, import.meta.url), "utf8"));
 const inst = F("instruments.json"), ctx = F("context.json"), cot = F("cot.json"), fin = F("finra.json"), cal = F("calendar.json"), scan = F("scan_partial.json");
@@ -57,6 +58,10 @@ function scanLive() {
   const nq = { breadth: { ...scan.breadth, n: map.filter(l => l.split("|")[11].includes("Q")).length }, sec: scan.sec.concat([{ name: "Other Nasdaq", n: 1400, chg: 0.4, gap: 0.2, a50: 48, score: 51, best: "XAAA", worst: "XBAA", mcap: 2100 }]), play: scan.play.slice(0, 10), longs: scan.longs.slice(0, 10), shorts: scan.shorts.slice(0, 10), er: scan.er };
   return { ...scan, v: 3, asOf: new Date().toISOString(), moveLabel: "Pre-market", sectors: (scan.sectors || []).length >= 12 ? scan.sectors : (scan.sectors || []).concat(["Other Nasdaq"]), map, ndx: nd, nasdaq: nq };
 }
+// Random-walk candles with the odd pattern-like swing, for the pattern finder.
+let MOCK_PAT = null;
+function walk(seed, n) { let sd = seed * 7919 % 2147483647 || 1, p = 100; const r = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647 - 0.5; };
+  const b = []; for (let i = 0; i < n; i++) { const o = p; p += r() * 2 + Math.sin(i / (6 + (seed % 9))) * 0.6; const c = p; b.push({ t: 1.7e9 + i * 300, o, c, h: Math.max(o, c) + Math.abs(r()) * 0.4, l: Math.min(o, c) - Math.abs(r()) * 0.4, v: 1000 + Math.abs(r()) * 900 }); } return b; }
 // Fake IC Markets bridge: PIN is "demo-pin-123". Orders "fill" at the scan price.
 const POS = [];
 async function mockTrade(req) {
@@ -65,6 +70,7 @@ async function mockTrade(req) {
   if (b.pin !== "demo-pin-123") return { ok: false, code: "BAD_PIN", error: "Wrong PIN" };
   const acct = () => ({ ok: true, env: "demo", account: { balance: 25000, ccy: "USD", leverage: 30, login: 9001 }, positions: POS.map(p => ({ ...p, now: p.price * 1.004, pnl: +(p.price * 0.004 * p.units).toFixed(2) })) });
   if (b.action === "account" || b.action === "positions") return acct();
+  if (b.action === "bars") return { ok: true, env: "demo", symbol: b.symbol + ".US", asOf: new Date().toISOString(), bars: Object.fromEntries(TIMEFRAMES.map((tf, k) => [tf, walk(Date.now() % 997 + k, 240).map(x => [x.t, x.o, x.h, x.l, x.c, x.v])])) };
   if (b.action === "find") return { ok: true, matches: [{ id: 1, name: b.symbol + ".US", desc: "Mock", score: 90 }] };
   if (b.action === "close") { const i = POS.findIndex(p => String(p.id) === String(b.positionId)); if (i >= 0) POS.splice(i, 1); return { ok: true, env: "demo", closed: b.positionId, price: 100 }; }
   if (b.action === "order") { const px = b.refPx || 100, units = Math.floor(b.usd / px); if (units < 1) return { ok: false, code: "TOO_SMALL", error: "Order too small" };
@@ -89,13 +95,17 @@ export async function handle(name, req) {
     case "fund": { const out = {}; for (const line of scanLive().map) { const sym = line.split("|")[0], k = rnd(); if (k < 0.08) continue;
       out[sym] = { rm: +(1.4 + rnd() * 1.8).toFixed(2), na: Math.round(3 + rnd() * 40), tgt: null, up: +(rnd() * 30 - 5).toFixed(1), sb: Math.round(rnd() * 15), b: Math.round(rnd() * 15), h: Math.round(rnd() * 10), s: Math.round(rnd() * 3), ss: Math.round(rnd() * 2),
         dy: rnd() < 0.55 ? +(rnd() * 5).toFixed(2) : null, inst: +(30 + rnd() * 60).toFixed(1), etfN: Math.round(rnd() * 5), top: [["Vanguard Total Stock Market Index Fund", 3.1, 1], ["SPDR S&P 500 ETF Trust", 1.2, 1], ["Fidelity Contrafund", 0.9, 0]],
-        erd: new Date(Date.now() + Math.round(rnd() * 40) * 864e5).toISOString().slice(0, 10) }; }
+        erd: new Date(Date.now() + Math.round(rnd() * 40) * 864e5).toISOString().slice(0, 10) };
+      if (k < 0.2) out[sym].ib = { buys: [{ n: "DOE JANE", r: k < 0.05 ? "Beneficial Owner (10% or more)" : "Director", d: new Date(Date.now() - Math.round(rnd() * 25) * 864e5).toISOString().slice(0, 10), sh: 5000, v: Math.round(50000 + rnd() * 2e6), px: 40 }], nb: 1, ns: 2, sv: 900000 };
+      out[sym].n6 = { b: Math.round(rnd() * 4), s: Math.round(rnd() * 9), net: 1000, pct: 0.4 };
+      out[sym].whales = [["Vanguard Group Inc", 8.4, +(rnd() * 6 - 1).toFixed(1), "2026-06-30"], ["BlackRock Inc.", 6.9, +(rnd() * 4 - 1).toFixed(1), "2026-06-30"], ["Citadel Advisors LLC", 0.8, +(rnd() < 0.08 ? 40 + rnd() * 80 : rnd() * 10 - 5).toFixed(1), "2026-06-30"]]; }
       return { asOf: new Date().toISOString(), stocks: out }; }
     case "news": { const out = {}; const now = Math.floor(Date.now() / 1000); for (const line of scanLive().map.slice(0, 700)) { const sym = line.split("|")[0], t = Math.round(rnd() * 4 - 1.5);
       out[sym] = { n48: Math.round(rnd() * 5), n7: Math.round(3 + rnd() * 8), tone48: t, tone7: t + Math.round(rnd() * 2 - 1), st: rnd() < 0.7 ? { bull: Math.round(rnd() * 20), bear: Math.round(rnd() * 8), n: 30, watch: 5000 } : undefined,
         pro48: Math.round(rnd() * 2), items: [{ t: `${sym} beats estimates and raises guidance`, p: "Business Wire", q: "pro", ts: now - 3600, l: "https://example.com/" + sym, s: 1 }, { t: `What to watch in ${sym} this week`, p: "Motley Fool", q: "op", ts: now - 86400, l: "https://example.com/w", s: 0 }],
         sec: rnd() < 0.5 ? [{ f: "8-K", d: new Date().toISOString().slice(0, 10), k: "earn", l: "8-K: Earnings release", tone: 0, u: "https://www.sec.gov/" }, { f: "4", d: new Date().toISOString().slice(0, 10), k: "ins", l: "Insider transaction (Form 4)", tone: 0, u: "https://www.sec.gov/" }] : [],
         secf: { dil: rnd() < 0.04, red: false, act: rnd() < 0.03, ins: 1, n: 1 } };
+      if (rnd() < 0.12) out[sym].f4 = [{ a: "x" + sym, fd: new Date().toISOString().slice(0, 10), u: "https://www.sec.gov/", n: "SMITH JOHN", role: rnd() < 0.5 ? "Chief Executive Officer" : "Director", ten: false, plan: false, buy: { sh: 10000, v: Math.round(100000 + rnd() * 3e6), px: 50, d: new Date(Date.now() - 2 * 864e5).toISOString().slice(0, 10) }, sell: null }];
       if (out[sym].secf.dil) out[sym].sec.unshift({ f: "424B5", d: new Date().toISOString().slice(0, 10), k: "dil", l: "Share offering / shelf (424B5)", tone: -1, u: "https://www.sec.gov/" }); }
       return { asOf: new Date().toISOString(), stocks: out }; }
     case "pulse": { const syms = scanLive().map.slice(0, 400).map(l => l.split("|")[0]); const now = Math.floor(Date.now() / 1000), reddit = {};
@@ -103,6 +113,10 @@ export async function handle(name, req) {
       const redditTop = Object.entries(reddit).filter(([, v]) => v[1] >= 15).map(([sx, v]) => ({ s: sx, rank: v[0], m: v[1], m24: v[2], x: +(v[1] / Math.max(1, v[2])).toFixed(1) })).sort((a, b) => b.x - a.x).slice(0, 15);
       return { asOf: new Date().toISOString(), wire: ["Stocks rally as Treasury yields ease", "Oil slips as OPEC+ weighs output", "Fed's Waller: more cuts likely if jobs cool", "Chipmakers lead Nasdaq higher", "Dollar steadies ahead of CPI", "Retail sales beat forecasts", "Bank stocks fall on credit worries", "Gold hits record on rate-cut bets"].map((t, i) => ({ t, src: ["Reuters", "CNBC", "MarketWatch", "Bloomberg"][i % 4], ts: now - i * 900, u: "https://example.com/" + i, s: /rally|higher|beat|record/.test(t) ? 1 : /fall|slips/.test(t) ? -1 : 0 })),
         reddit, redditTop, stTrend: syms.slice(5, 17).map(x => ({ s: x, t: x + " Inc", w: 1000 })).concat([{ s: "GME", t: "GameStop", w: 9000 }]), errors: [] }; }
+    case "patterns": { if (!MOCK_PAT) { const names = scanLive().map.slice(0, 110).map(l => l.split("|")[0]), stocks = {};
+        names.forEach((sym, n) => { stocks[sym] = {}; TIMEFRAMES.forEach((tf, k) => { stocks[sym][tf] = findPatterns(walk(n * 31 + k * 7 + 1, 220), { limit: 2 }); }); });
+        const now = new Date().toISOString(); MOCK_PAT = { asOf: now, tfAsOf: Object.fromEntries(TIMEFRAMES.map(t => [t, now])), n: names.length, stocks, list: names }; }
+      return MOCK_PAT; }
     case "trade": return mockTrade(req);
     case "health": return { ok: true, mode: "mock" };
     default: return null;

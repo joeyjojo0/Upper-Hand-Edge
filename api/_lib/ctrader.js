@@ -8,7 +8,7 @@ export const PT = {
   SYMBOLS_LIST_REQ: 2114, SYMBOLS_LIST_RES: 2115, SYMBOL_BY_ID_REQ: 2116, SYMBOL_BY_ID_RES: 2117,
   TRADER_REQ: 2121, TRADER_RES: 2122, RECONCILE_REQ: 2124, RECONCILE_RES: 2125, EXECUTION_EVENT: 2126,
   SUBSCRIBE_SPOTS_REQ: 2127, SUBSCRIBE_SPOTS_RES: 2128, UNSUBSCRIBE_SPOTS_REQ: 2129, SPOT_EVENT: 2131,
-  ORDER_ERROR_EVENT: 2132, ERROR_RES: 2142, GET_ACCOUNTS_REQ: 2149, GET_ACCOUNTS_RES: 2150
+  ORDER_ERROR_EVENT: 2132, GET_TRENDBARS_REQ: 2137, GET_TRENDBARS_RES: 2138, ERROR_RES: 2142, GET_ACCOUNTS_REQ: 2149, GET_ACCOUNTS_RES: 2150
 };
 const EXEC = { 2: "ORDER_ACCEPTED", 3: "ORDER_FILLED", 4: "ORDER_REPLACED", 5: "ORDER_CANCELLED", 6: "ORDER_EXPIRED", 7: "ORDER_REJECTED", 8: "ORDER_CANCEL_REJECTED", 11: "ORDER_PARTIAL_FILL" };
 const SIDE = { 1: "BUY", 2: "SELL" };
@@ -131,6 +131,12 @@ export class CTrader {
     this.raw({ clientMsgId: "uhe_ord_" + clientOrderId, payloadType: PT.NEW_ORDER_REQ, payload });
     return (await ack) || { status: "SENT", description: "No fill confirmation within 12s. Check cTrader before retrying." };
   }
+  // OHLCV bars (cTrader sends low plus deltas, all in 1/100000 of a unit; time in minutes).
+  async trendbars(symbolId, period, fromMs, toMs, count = 260) {
+    const r = await this.request(PT.GET_TRENDBARS_REQ, { ctidTraderAccountId: this.accountId, symbolId, period, fromTimestamp: Math.floor(fromMs), toTimestamp: Math.floor(toMs), count }, PT.GET_TRENDBARS_RES, 15000);
+    return (r.trendbar || []).map(x => { const lo = Number(x.low || 0); return { t: Number(x.utcTimestampInMinutes) * 60, o: (lo + Number(x.deltaOpen || 0)) / 1e5, h: (lo + Number(x.deltaHigh || 0)) / 1e5, l: lo / 1e5, c: (lo + Number(x.deltaClose || 0)) / 1e5, v: Number(x.volume || 0) }; })
+      .sort((a, b) => a.t - b.t);
+  }
   async closePosition(positionId, volume) {
     const ack = this.waitFor(m => {
       const p = m.payload || {};
@@ -179,3 +185,6 @@ export function relDistance(dist, digits) {
   const step = 10 ** Math.max(0, 5 - (Number.isFinite(+digits) ? +digits : 2));
   return Math.max(step, Math.round(dist * 1e5 / step) * step);
 }
+
+// UHE timeframe → cTrader trendbar period and how far back to ask (enough for ~260 bars incl. nights and weekends).
+export const TF_PERIOD = { "1m": [1, 3], "5m": [5, 8], "10m": [6, 14], "30m": [8, 35], "1h": [9, 60], "4h": [10, 200], "1d": [12, 420], "1w": [13, 2200] };

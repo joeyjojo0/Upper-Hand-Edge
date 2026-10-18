@@ -2,10 +2,11 @@
 // Shared by the browser (strategy.js) and the tests. Pure functions, no DOM.
 // Not investment advice: each check is a filter on public data, not a prediction.
 import { isNum, nyOpenUKMin, ukMinOf, tzParts, UK } from "./model.js";
+import { patternSummary } from "./patterns.js";
 
 export const RULE_DEFAULTS = {
-  day: { rsiMin: 50, rsiMax: 72, rvolMin: 1.2, pcrMax: 1, recMax: 2.2, analystsMin: 5, instMin: 50, etfMin: 2, tpPct: 2, slPct: 1.5, stBull: 60 },
-  long: { rsiMin: 50, recMax: 2.2, analystsMin: 5, upsideMin: 5, instMin: 50, etfMin: 2, divMin: 2.5, erFrom: 2, erTo: 10, tpPct: 8, slPct: 5 }
+  day: { rsiMin: 50, rsiMax: 72, rvolMin: 1.2, pcrMax: 1, recMax: 2.2, analystsMin: 5, instMin: 50, etfMin: 2, tpPct: 2, slPct: 1.5, stBull: 60, insMinUsd: 20000, fundsAdding: 3, fundAddPct: 5, patConf: 60 },
+  long: { rsiMin: 50, recMax: 2.2, analystsMin: 5, upsideMin: 5, instMin: 50, etfMin: 2, divMin: 2.5, erFrom: 2, erTo: 10, tpPct: 8, slPct: 5, insMinUsd: 20000, fundsAdding: 3, fundAddPct: 5, patConf: 60 }
 };
 export function normRules(r) {
   const out = { day: { ...RULE_DEFAULTS.day }, long: { ...RULE_DEFAULTS.long } };
@@ -16,12 +17,38 @@ export function normRules(r) {
 
 export const DAY_RULES = [
   ["rsi", "RSI"], ["vol", "Volume"], ["news", "News & retail"], ["etf", "ETF / big holders"],
-  ["trend", "Uptrend"], ["opts", "Calls > puts"], ["analysts", "Analysts"]
+  ["trend", "Uptrend"], ["opts", "Calls > puts"], ["analysts", "Analysts"], ["firms", "Insiders & firms"], ["pattern", "Chart pattern"]
 ];
 export const LONG_RULES = [
   ["rsi5", "RSI ≥ 50 · 5 days"], ["kst5", "KST · 5 days"], ["earn", "Pre-earnings window"], ["etf", "ETF / big holders"],
-  ["opts", "Calls > puts"], ["analysts", "Analysts"], ["div", "Dividend"]
+  ["opts", "Calls > puts"], ["analysts", "Analysts"], ["div", "Dividend"], ["firms", "Insiders & firms"], ["pattern", "Chart pattern"]
 ];
+export const DAY_TFS = ["1m", "5m", "10m", "30m", "1h", "4h", "1d"]; // timeframes that count for the day-trade pattern tick
+export const LONG_TFS = ["4h", "1d", "1w"];                          // …and for the long-term one
+
+// Tick 8: directors/officers buying, a whale (10% owner buy or 13D), or several big firms adding in the latest 13F.
+function firmsCheck(N, F, R, now) {
+  if (!F && !(N && (N.f4 || N.secf))) return { pass: null, val: "No insider data yet" };
+  const v = insiderView(N, F, typeof now === "number" ? now : +now, R.insMinUsd);
+  const adders = ((F && F.whales) || []).filter(w => isNum(w[2]) && w[2] >= R.fundAddPct);
+  const m = x => x >= 1e6 ? "$" + (x / 1e6).toFixed(1) + "M" : "$" + Math.round(x / 1e3) + "k";
+  const bits = [];
+  if (v.b30.length) bits.push(`${v.cluster ? `${v.buyers} insiders` : v.b30[0].role || "Insider"} bought ${m(v.total)} in 30 days`);
+  if (v.stake) bits.push("new 13D stake");
+  if (adders.length) bits.push(`${adders.length} of the top ${(F.whales || []).length} firms added ${R.fundAddPct}%+ (13F)`);
+  if (!bits.length && v.sells.length) bits.push(`insiders sold ${m(v.sells.reduce((t, x) => t + (x.v || 0), 0))} recently`);
+  return { pass: v.b30.length > 0 || v.stake || v.bigFund || adders.length >= R.fundsAdding, val: bits.join(" · ") || "No insider buying or firm accumulation" };
+}
+// Tick 9: a bullish chart pattern (forming or just broken out): 1m–1d for day trades, 4h–1w for long term.
+function patternCheck(P, R, TFS = DAY_TFS) {
+  if (!P) return { pass: null, val: "Not in the pattern scan (use Scan live)" };
+  const byTf = Object.fromEntries(TFS.map(t => [t, P[t] || []])), sm = patternSummary(byTf);
+  const bull = sm.bull.filter(p => p.conf >= R.patConf), b = bull.sort((x, y) => (y.status !== "forming") - (x.status !== "forming") || y.conf - x.conf)[0];
+  const brk = sm.bear.find(p => p.status === "breakdown" && p.conf >= R.patConf);
+  if (b && !(brk && TFS.indexOf(brk.tf) >= TFS.indexOf(b.tf))) return { pass: true, val: `${b.name} on ${b.tf} · ${b.status === "breakout" ? "broke out" : "forming"} (quality ${b.conf})${bull.length > 1 ? ` · +${bull.length - 1} more` : ""}` };
+  if (brk) return { pass: false, val: `${brk.name} broke down on ${brk.tf}` };
+  return { pass: false, val: sm.all.length ? `Only ${sm.bear.length ? "bearish" : "low-quality"} patterns` : `No pattern on ${TFS[0]}–${TFS[TFS.length - 1]}` };
+}
 
 const f1 = x => isNum(x) ? x.toFixed(1) : "—";
 const daysTo = (ymd, now) => { if (!ymd) return null; const a = Date.parse(ymd + "T12:00:00Z"), p = tzParts(now, UK); const b = Date.UTC(p.y, p.m - 1, p.d, 12); return Math.round((a - b) / 864e5); };
@@ -75,7 +102,7 @@ export function longPlan(d, R) {
   return { entry, tp: entry * (1 + R.tpPct / 100), sl: entry * (1 - R.slPct / 100), tpPct: R.tpPct, slPct: R.slPct, rr: R.tpPct / R.slPct };
 }
 
-export function evalDay(d, O, F, N, R) {
+export function evalDay(d, O, F, N, R, P, now = Date.now()) {
   const c = {};
   c.rsi = isNum(d.rsi) ? { pass: d.rsi >= R.rsiMin && d.rsi <= R.rsiMax && (!isNum(d.rsiP) || d.rsi >= d.rsiP), val: `${Math.round(d.rsi)}${isNum(d.rsiP) ? (d.rsi >= d.rsiP ? " rising" : " falling") : ""}${d.rsi > R.rsiMax ? " · overbought" : ""}` } : { pass: null, val: "—" };
   c.vol = isNum(d.rvol) ? { pass: d.rvol >= R.rvolMin, val: `${d.rvol.toFixed(2)}× its 20-day average` } : { pass: null, val: "—" };
@@ -85,9 +112,11 @@ export function evalDay(d, O, F, N, R) {
   c.trend = isNum(d.px) && isNum(d.sma20) && isNum(sma50) ? { pass: d.px > d.sma20 && d.sma20 > sma50 && d.sma20up !== false, val: `${d.px > d.sma20 ? "Above" : "Below"} 20-day · 20-day ${d.sma20 > sma50 ? "above" : "below"} 50-day${d.sma20up === true ? " · rising" : d.sma20up === false ? " · flattening" : ""}` } : { pass: null, val: "—" };
   c.opts = O && (O.cv || O.pv) ? { pass: O.cv > O.pv && (O.pcr == null || O.pcr < R.pcrMax), val: `${(O.cv || 0).toLocaleString("en-US")} calls vs ${(O.pv || 0).toLocaleString("en-US")} puts · P/C ${O.pcr ?? "—"}` } : { pass: null, val: "No options data" };
   c.analysts = analysts(F, R, false);
+  c.firms = firmsCheck(N, F, R, now);
+  c.pattern = patternCheck(P, R);
   return c;
 }
-export function evalLong(d, O, F, N, R, now = new Date()) {
+export function evalLong(d, O, F, N, R, now = new Date(), P = null) {
   const c = {};
   c.rsi5 = Array.isArray(d.rsi5) && d.rsi5.length === 5 ? { pass: all5(d.rsi5, v => v >= R.rsiMin), val: d.rsi5.map(v => isNum(v) ? Math.round(v) : "—").join(" · ") } : { pass: null, val: "Needs the next history refresh" };
   const kOK = Array.isArray(d.kst5) && Array.isArray(d.kstSig5) && d.kst5.length === 5 && d.kst5.every(isNum) && d.kstSig5.every(isNum);
@@ -103,17 +132,20 @@ export function evalLong(d, O, F, N, R, now = new Date()) {
   c.opts = O && (O.coi || O.poi || O.cv || O.pv) ? (() => { const useOI = (O.coi || 0) + (O.poi || 0) > 0, a = useOI ? O.coi : O.cv, b = useOI ? O.poi : O.pv; return { pass: a > b, val: `${useOI ? "Open interest" : "Volume"} ${(a || 0).toLocaleString("en-US")} calls vs ${(b || 0).toLocaleString("en-US")} puts` }; })() : { pass: null, val: "No options data" };
   c.analysts = analysts(F, R, true);
   c.div = F && F.dy != null ? { pass: F.dy >= R.divMin, val: `${F.dy.toFixed(2)}% yield${F.exd ? ` · ex-div ${F.exd.slice(5)}` : ""}` } : F ? { pass: false, val: "No dividend" } : { pass: null, val: "No dividend data yet" };
+  c.firms = firmsCheck(N, F, R, now);
+  c.pattern = patternCheck(P, R, LONG_TFS);
   return c;
 }
 
 // One ranked row per stock. `u` filters by universe letter (S, N, Q) or a watchlist Set.
-export function rank(mode, D, O, F, N, rules, { u = "S", watch = null, minPass = 0, q = "", now = new Date() } = {}) {
+export function rank(mode, D, O, F, N, rules, { u = "S", watch = null, minPass = 0, q = "", now = new Date(), pat = null } = {}) {
   const R = rules[mode], keys = (mode === "day" ? DAY_RULES : LONG_RULES).map(r => r[0]);
   const rows = [];
   for (const [s, d] of Object.entries(D || {})) {
     if (watch ? !watch.has(s) : !(d.u || "S").includes(u)) continue;
     if (q && !s.startsWith(q) && !(d.name || "").toUpperCase().includes(q)) continue;
-    const c = mode === "day" ? evalDay(d, O[s], F[s], N[s], R) : evalLong(d, O[s], F[s], N[s], R, now);
+    const P = typeof pat === "function" ? pat(s) : pat && pat[s];
+    const c = mode === "day" ? evalDay(d, O[s], F[s], N[s], R, P, +now) : evalLong(d, O[s], F[s], N[s], R, now, P);
     const pass = keys.filter(k => c[k].pass === true).length, fail = keys.filter(k => c[k].pass === false).length;
     if (pass < minPass) continue;
     rows.push({ s, d, c, pass, fail, known: pass + fail, plan: mode === "day" ? dayPlan(d, R) : longPlan(d, R), F: F[s], N: N[s], O: O[s] });
@@ -132,4 +164,35 @@ export function dayPhase(now = new Date()) {
   if (m < open + 15) return { k: "open", t: `Open (${hm(open)})`, d: "Buy strength on the opening print, or wait for the first sell-off and buy when it reclaims yesterday's close." };
   if (m < open + 390) return { k: "session", t: "Session: dip-buys", d: "Only buy a dip that reclaims yesterday's close. Take 1–3% and sell before the previous day's high." };
   return { k: "closed", t: "US market closed", d: `Next pre-market check ${hm(open - 30)} UK.` };
+}
+
+// ---------------- insiders & whales ----------------
+// Directors/officers and 10% owners buying on the open market (SEC Form 4, parsed in the engine; Yahoo as back-up),
+// new 13D stakes, and big institutions that added to their position in the latest 13F.
+const dayDiff = (d, now) => d ? (now - Date.parse(d + "T00:00:00Z")) / 864e5 : Infinity;
+const first = s => String(s || "").toUpperCase().split(/[\s,]+/)[0];
+export function insiderView(N, F, now = Date.now(), minUsd = 20000) {
+  const buys = [], sells = [];
+  for (const f of (N && N.f4) || []) {
+    if (f.skip) continue;
+    if (f.buy) buys.push({ n: f.n, role: f.role, v: f.buy.v, sh: f.buy.sh, px: f.buy.px, d: f.buy.d || f.fd, ten: !!f.ten, src: "SEC", u: f.u });
+    if (f.sell) sells.push({ n: f.n, role: f.role, v: f.sell.v, sh: f.sell.sh, px: f.sell.px, d: f.sell.d || f.fd, plan: !!f.plan, src: "SEC", u: f.u });
+  }
+  for (const x of (F && F.ib && F.ib.buys) || []) {
+    if (buys.some(y => first(y.n) === first(x.n) && Math.abs(dayDiff(y.d, now) - dayDiff(x.d, now)) <= 4)) continue; // same trade, already from the SEC
+    buys.push({ n: x.n, role: x.r, v: x.v, sh: x.sh, px: x.px, d: x.d, ten: /10%|beneficial/i.test(x.r || ""), src: "Yahoo" });
+  }
+  buys.sort((a, b) => String(b.d).localeCompare(String(a.d)));
+  const b30 = buys.filter(x => dayDiff(x.d, now) <= 30 && (x.v || 0) >= minUsd);
+  const buyers = new Set(b30.map(x => first(x.n))).size, total = b30.reduce((t, x) => t + (x.v || 0), 0);
+  const funds = ((F && F.whales) || []).filter(w => isNum(w[2]) && w[2] >= 5).map(([n, p, ch, d]) => ({ n, p, ch, d })).sort((a, b) => b.ch - a.ch);
+  const stake = !!(N && N.secf && N.secf.act), whaleBuy = b30.some(x => x.ten), bigFund = funds.some(f => f.ch >= 25);
+  return { buys, sells, b30, total, buyers, cluster: buyers >= 2, insider: b30.some(x => !x.ten), whale: whaleBuy || stake || bigFund, whaleBuy, stake, bigFund, funds, n6: F && F.n6,
+    any: b30.length > 0 || stake || bigFund };
+}
+export function insiderLabel(v) {
+  if (!v) return "";
+  const m = x => x >= 1e6 ? "$" + (x / 1e6).toFixed(1) + "M" : "$" + Math.round(x / 1e3) + "k";
+  if (v.b30.length) return `${v.cluster ? "Cluster buy" : v.whaleBuy ? "Whale buy" : "Insider buy"} ${m(v.total)}`;
+  if (v.stake) return "13D stake"; if (v.bigFund) return "Fund adding"; return "";
 }

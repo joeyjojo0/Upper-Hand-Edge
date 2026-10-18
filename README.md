@@ -64,7 +64,7 @@ Or from a terminal: `npx vercel --prod`.
 | `/api/calendar` | This week's events in UK time | 15 min |
 | `/api/brief` | Claude brief (if `ANTHROPIC_API_KEY` is set) | 30 min |
 | `/api/health` | Connectivity check | none |
-| `/api/trade` | IC Markets (cTrader) bridge. `GET` shows what's configured; `POST {action, pin}` with `account`, `accounts`, `find`, `order`, `positions`, `close` | none |
+| `/api/trade` | IC Markets (cTrader) bridge. `GET` shows what's configured; `POST {action, pin}` with `account`, `accounts`, `find`, `bars` (live candles for pattern scans), `order`, `positions`, `close` | none |
 
 ## Local development
 
@@ -86,6 +86,8 @@ public/styles.css  glass UI
 public/model.js    shared scoring, playbooks, live overlay and briefs (browser + /api/brief)
 public/app.js      live polling, rendering, TradingView embeds, journal, snapshot
 public/strategy.*  Strategy page; strategy-model.js holds the checklist rules (shared with the tests)
+public/patterns.js chart-pattern finder (shared by the engine, the page's live scan and the tests)
+api/_lib/patterns-data.js  multi-timeframe candles + patterns for the engine's shortlist
 api/_lib/ctrader.js  cTrader Open API client (JSON over WebSocket) used by api/trade.js
 dev/               local server, mock API, fixtures, tests
 ```
@@ -112,11 +114,19 @@ Free Render services sleep when idle; the page shows a loader while it wakes (up
 
 The Strategy page (`/strategy`) scores every stock against two checklists. A tick means that signal lines up on public data; it is not a prediction.
 
+Both checklists score up to **9 confluences**.
+
 **Day trade** (around the New York open, 14:30 UK; 13:30 for the two weeks a year when the UK and US clocks change on different dates):
-RSI 50–72 and rising · volume above its 20-day average · positive headline tone or bullish StockTwits · big institutions or index ETFs hold it · price above the 20-day, 20-day above the 50-day and rising · more call volume than puts · analysts at Buy or better.
+1 RSI 50–72 and rising · 2 volume above its 20-day average · 3 positive headline tone or bullish StockTwits · 4 big institutions or index ETFs hold it · 5 price above the 20-day, 20-day above the 50-day and rising · 6 more call volume than puts · 7 analysts at Buy or better · **8 insiders & firms buying** · **9 a bullish chart pattern on 1m–1d**.
 Plan: pre-market check at 14:00, buy the 14:30 open or the first dip that reclaims yesterday's close, take 1–3% and sell before yesterday's high.
 
-**Long term:** RSI ≥ 50 on each of the last 5 days · KST above its signal on each of the last 5 days · earnings 2–10 days away (the week-before buying window) with no bad news · institutions/index ETFs hold it · more call open interest than puts · analysts at Buy with target upside · dividend yield ≥ 2.5%.
+**Long term:** 1 RSI ≥ 50 on each of the last 5 days · 2 KST above its signal on each of the last 5 days · 3 earnings 2–10 days away (the week-before buying window) with no bad news · 4 institutions/index ETFs hold it · 5 more call open interest than puts · 6 analysts at Buy with target upside · 7 dividend yield ≥ 2.5% · **8 insiders & firms buying** · **9 a bullish chart pattern on 4h, 1d or 1w**.
+
+**Tick 8, insiders & firms:** a director or officer bought $20k+ on the open market in the last 30 days (SEC Form 4, parsed as filed), a whale bought (a 10% owner's Form 4 or a new 13D stake), or 3+ of the stock's top-10 institutions added 5%+ in their latest 13F. The **Insider & whale buying** panel lists the biggest buys across the market.
+
+**Tick 9, chart patterns:** UHE's own pattern finder (`public/patterns.js`) looks for head & shoulders, inverse head & shoulders, double top/bottom, ascending/descending triangles, bull/bear flags, cup & handle and wedges (falling, rising, symmetrical) on **1m, 5m, 10m, 30m, 1h, 4h, 1d and 1w** candles. Each pattern has a status (forming / broke out / broke down), a quality score, the key level, a measured-move target and a stop, with a mini chart. The engine scans the top ~110 checklist names (1m–30m every run while US stocks trade, 1h–1w hourly); **Scan live** in a stock's detail pulls fresh candles for any stock from IC Markets (cTrader) and finds the patterns in your browser. Patterns fail often and random moves form them too, so they're one input, not a signal on their own.
+
+Extra filters **On top of the checklist**: show only stocks with a bullish pattern (any timeframe, breakouts only, or a chosen timeframe) and/or insider, director or whale buying. **Pattern guide** explains each shape.
 
 Every threshold can be changed under **Rules & thresholds** (saved in your browser).
 
@@ -134,7 +144,7 @@ The **News & retail** tick passes on positive wire tone, bullish StockTwits, a R
 
 Add a GitHub secret `SEC_CONTACT` with a contact email: the SEC asks automated users to identify themselves and may block requests without it.
 
-Data comes from new data-engine jobs: `fund` (analysts, fund holders, dividends, earnings date; twice a day), `news` (headlines, SEC filings and StockTwits for a technical shortlist plus Reddit/StockTwits trending names; hourly, every ~20 min from 12:00–15:30 UK), `pulse` (market wire, Reddit, StockTwits trending; every run) and the existing `scan`, `deep` and `options` jobs. KST and 5-day RSI arrive with the next `scan-hist` run.
+Data comes from new data-engine jobs: `fund` (analysts, fund holders, dividends, earnings date; twice a day), `news` (headlines, SEC filings and StockTwits for a technical shortlist plus Reddit/StockTwits trending names; hourly, every ~20 min from 12:00–15:30 UK), `pulse` (market wire, Reddit, StockTwits trending; every run), `patterns` (chart patterns, see above); `fund` also carries insider transactions and the top institutions' 13F changes, and `news` parses new Form 4s and the existing `scan`, `deep` and `options` jobs. KST and 5-day RSI arrive with the next `scan-hist` run.
 
 ### Connect IC Markets (cTrader Open API)
 

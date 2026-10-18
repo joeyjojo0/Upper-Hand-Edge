@@ -565,11 +565,46 @@ export function parseSummary(r) {
     inst: RAW(mh.institutionsPercentHeld) != null ? rd(RAW(mh.institutionsPercentHeld) * 100, 1) : null,
     etfN: etfs.length, etfPct: etfs.length ? rd(etfs.reduce((t, o) => t + (o.p || 0), 0) * 100, 2) : null,
     top: own.slice(0, 5).map(o => [o.n, o.p != null ? rd(o.p * 100, 2) : null, ETF_RE.test(o.n) ? 1 : 0]),
-    erd: ed ? new Date(ed * 1000).toISOString().slice(0, 10) : null
+    erd: ed ? new Date(ed * 1000).toISOString().slice(0, 10) : null,
+    ...parseOwnership(r)
   };
 }
+// Insiders (Form 4 via Yahoo, last ~6 months) and the big institutions' latest 13F changes.
+export function parseOwnership(r, now = Date.now()) {
+  const tx = ((r.insiderTransactions || {}).transactions || []).map(t => ({ n: String(t.filerName || "").slice(0, 40), r: String(t.filerRelation || "").slice(0, 40), txt: String(t.transactionText || ""),
+    d: RAW(t.startDate) ? new Date(RAW(t.startDate) * 1000).toISOString().slice(0, 10) : null, sh: RAW(t.shares), v: RAW(t.value) }));
+  const recent = x => x.d && now - Date.parse(x.d + "T00:00:00Z") <= 90 * 864e5;
+  const buys = tx.filter(x => /^purchase/i.test(x.txt) && recent(x)), sells = tx.filter(x => /^sale/i.test(x.txt) && recent(x));
+  const ns = r.netSharePurchaseActivity || {};
+  const inst = ((r.institutionOwnership || {}).ownershipList || []).map(o => ({ n: String(o.organization || "").slice(0, 40), p: RAW(o.pctHeld), ch: RAW(o.pctChange), d: RAW(o.reportDate) }))
+    .filter(o => o.n).slice(0, 10);
+  const out = {};
+  if (buys.length || sells.length) out.ib = { buys: buys.slice(0, 6).map(x => ({ n: x.n, r: x.r, d: x.d, sh: x.sh, v: x.v, px: x.sh && x.v ? rd(x.v / x.sh, 2) : null })), nb: buys.length, ns: sells.length, sv: Math.round(sells.reduce((t, x) => t + (x.v || 0), 0)) };
+  if (RAW(ns.buyInfoCount) != null) out.n6 = { b: RAW(ns.buyInfoCount), s: RAW(ns.sellInfoCount), net: RAW(ns.netInfoShares), pct: RAW(ns.netPercentInsiderShares) != null ? rd(RAW(ns.netPercentInsiderShares) * 100, 2) : null };
+  if (inst.length) out.whales = inst.map(o => [o.n, o.p != null ? rd(o.p * 100, 2) : null, o.ch != null ? rd(o.ch * 100, 1) : null, o.d ? new Date(o.d * 1000).toISOString().slice(0, 10) : null]);
+  return out;
+}
+
+// SEC Form 4 (filed within two business days of the trade): who traded, their role, open-market buys (P) and sells (S).
+const XV = (blk, tag) => { const m = blk.match(new RegExp(`<${tag}>\\s*(?:<value>)?\\s*([^<]*?)\\s*(?:</value>)?\\s*</${tag}>`, "i")); return m ? m[1].trim() : ""; };
+export function parseForm4(xml) {
+  const owners = [...String(xml).matchAll(/<reportingOwner>([\s\S]*?)<\/reportingOwner>/gi)].map(m => {
+    const b = m[1], yes = t => /^(1|true)$/i.test(XV(b, t));
+    const title = XV(b, "officerTitle"), ten = yes("isTenPercentOwner");
+    return { n: XV(b, "rptOwnerName"), role: title || (yes("isDirector") ? "Director" : ten ? "10% owner" : yes("isOfficer") ? "Officer" : "Insider"), ten, dir: yes("isDirector"), off: yes("isOfficer") };
+  });
+  const plan = /<aff10b5One>\s*(1|true)\s*<\/aff10b5One>/i.test(xml);
+  const tx = [...String(xml).matchAll(/<nonDerivativeTransaction>([\s\S]*?)<\/nonDerivativeTransaction>/gi)].map(m => {
+    const b = m[1], sh = +XV(b, "transactionShares") || 0, px = +XV(b, "transactionPricePerShare") || 0;
+    return { d: XV(b, "transactionDate").slice(0, 10), code: XV(b, "transactionCode"), ad: XV(b, "transactionAcquiredDisposedCode"), sh, px, v: Math.round(sh * px) };
+  }).filter(t => t.code === "P" || t.code === "S");
+  if (!owners.length || !tx.length) return null;
+  const sum = code => { const a = tx.filter(t => t.code === code); return a.length ? { sh: a.reduce((t, x) => t + x.sh, 0), v: a.reduce((t, x) => t + x.v, 0), px: rd(a.reduce((t, x) => t + x.v, 0) / Math.max(1, a.reduce((t, x) => t + x.sh, 0)), 2), d: a[a.length - 1].d } : null; };
+  const o = owners[0];
+  return { n: o.n.slice(0, 40), role: o.role.slice(0, 40), ten: o.ten, plan, buy: sum("P"), sell: sum("S") };
+}
 export async function fundamentalsFor(syms) {
-  const MODS = "financialData,summaryDetail,recommendationTrend,majorHoldersBreakdown,fundOwnership,calendarEvents";
+  const MODS = "financialData,summaryDetail,recommendationTrend,majorHoldersBreakdown,fundOwnership,calendarEvents,insiderTransactions,netSharePurchaseActivity,institutionOwnership";
   let cr = await crumb().catch(() => ({ crumb: "", cookie: "" }));
   const res = await pool(syms, async s => {
     const q = `/v10/finance/quoteSummary/${encodeURIComponent(s.replace(/\./g, "-"))}?modules=${MODS}` + (PROXY_BASE ? "" : `&crumb=${encodeURIComponent(cr.crumb)}`);
@@ -632,11 +667,11 @@ export function classifyFiling(form, items) {
 export async function secFilings(cik, days = 10, now = Date.now()) {
   const j = await secGet(`https://data.sec.gov/submissions/CIK${String(cik).padStart(10, "0")}.json`);
   const R = (j.filings && j.filings.recent) || {}, out = [];
-  for (let i = 0; i < (R.form || []).length && out.length < 12; i++) {
+  for (let i = 0; i < (R.form || []).length && out.length < 20; i++) {
     const d = R.filingDate[i]; if (!d || now - Date.parse(d + "T00:00:00Z") > days * 864e5) continue;
     const c = classifyFiling(R.form[i], R.items && R.items[i]); if (!c) continue;
     const acc = String(R.accessionNumber[i] || "").replace(/-/g, "");
-    out.push({ f: R.form[i], d, ts: R.acceptanceDateTime && R.acceptanceDateTime[i] ? Math.floor(Date.parse(R.acceptanceDateTime[i]) / 1000) : null, ...c, u: acc ? `https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/${acc}/${R.primaryDocument[i] || ""}` : "" });
+    out.push({ f: R.form[i], d, ts: R.acceptanceDateTime && R.acceptanceDateTime[i] ? Math.floor(Date.parse(R.acceptanceDateTime[i]) / 1000) : null, ...c, a: acc, u: acc ? `https://www.sec.gov/Archives/edgar/data/${parseInt(cik, 10)}/${acc}/${R.primaryDocument[i] || ""}` : "" });
   }
   return out;
 }
@@ -646,7 +681,22 @@ function secFlags(list, now = Date.now()) {
     ins: list.filter(x => x.k === "ins").length, n: list.filter(x => x.k !== "ins").length };
 }
 
-export async function newsFor(syms, { sec = true } = {}) {
+// Form 4s for one stock: parse new filings, reuse ones parsed on earlier runs (keyed by accession number).
+async function form4s(filings, cache) {
+  const out = [];
+  for (const f of filings.filter(x => x.k === "ins" && x.a).slice(0, 8)) {
+    if (cache[f.a] !== undefined) { if (cache[f.a]) out.push(cache[f.a]); continue; }
+    try {
+      const wait = Math.max(0, SEC_T + 140 - Date.now()); SEC_T = Date.now() + wait; if (wait) await sleep(wait);
+      const r = await fetch(f.u.replace(/\/xsl[^/]+\//, "/"), { headers: { "User-Agent": SEC_UA() }, signal: AbortSignal.timeout(15000) });
+      if (!r.ok) continue;
+      const p = parseForm4(await r.text());
+      out.push(p ? { a: f.a, fd: f.d, u: f.u, ...p } : { a: f.a, skip: 1 });
+    } catch (e) { /* try again next run */ }
+  }
+  return out;
+}
+export async function newsFor(syms, { sec = true, prev = null } = {}) {
   const now = Date.now() / 1000; let stFails = 0, stOk = 0, secOk = 0, secFails = 0;
   const ST = s => PROXY_BASE ? `${PROXY_BASE}/st/streams/symbol/${encodeURIComponent(s)}.json` : `https://api.stocktwits.com/api/2/streams/symbol/${encodeURIComponent(s)}.json`;
   const ciks = sec ? await secCiks().catch(() => null) : null;
@@ -668,7 +718,11 @@ export async function newsFor(syms, { sec = true } = {}) {
     }
     const cik = ciks && ciks[s.toUpperCase()];
     if (cik && secFails < 8) {
-      try { const f = await secFilings(cik); out.sec = f.slice(0, 8); out.secf = secFlags(f); secOk++; }
+      try {
+        const f = await secFilings(cik); out.sec = f.filter(x => x.k !== "ins").slice(0, 8); out.secf = secFlags(f); secOk++;
+        const old = (((prev && prev.stocks && prev.stocks[s]) || {}).f4 || []), cache = Object.fromEntries(old.map(x => [x.a, x.skip ? null : x]));
+        const f4 = await form4s(f, cache); if (f4.length) out.f4 = f4;
+      }
       catch (e) { secFails++; }
     }
     return [s, out];
