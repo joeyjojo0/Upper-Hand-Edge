@@ -2,6 +2,7 @@
 // (dev/fixtures), with prices random-walking on every quote request. The S&P 500 heat-map values are synthetic.
 import { readFileSync } from "node:fs";
 import { findPatterns, TIMEFRAMES } from "../public/patterns.js";
+import { handleUpdate } from "./mock-update.mjs";
 
 const F = n => JSON.parse(readFileSync(new URL("./fixtures/" + n, import.meta.url), "utf8"));
 const inst = F("instruments.json"), ctx = F("context.json"), cot = F("cot.json"), fin = F("finra.json"), cal = F("calendar.json"), scan = F("scan_partial.json");
@@ -118,6 +119,7 @@ export async function handle(name, req) {
         const now = new Date().toISOString(); MOCK_PAT = { asOf: now, tfAsOf: Object.fromEntries(TIMEFRAMES.map(t => [t, now])), n: names.length, stocks, list: names }; }
       return MOCK_PAT; }
     case "trade": return mockTrade(req);
+    case "update": return handleUpdate(req);
     case "health": return { ok: true, mode: "mock" };
     default: return null;
   }

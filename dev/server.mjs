@@ -13,8 +13,11 @@ const mock = MOCK ? await import("./mock.mjs") : null;
 
 async function api(name, req, res) {
   if (mock) {
-    const body = await mock.handle(name, req);
+    let body = await mock.handle(name, req);
     if (body == null) { res.statusCode = 404; return res.end("{}"); }
+    if (body.__stream) return body.__stream(res); // streamed answers (the update page's Claude steps)
+    res.statusCode = 200;
+    if (!Array.isArray(body) && "__status" in body) { res.statusCode = body.__status; body = { ...body }; delete body.__status; }
     res.setHeader("Content-Type", "application/json; charset=utf-8"); res.setHeader("Cache-Control", "no-store");
     return res.end(JSON.stringify(body));
   }

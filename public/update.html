@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>UHE · Update</title>
+<meta name="description" content="Update: ask Claude to change the Upper Hand Edge site, push the changes to GitHub and run the data engine.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#04060C">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Sora:wght@300;400;500;600;700&family=Azeret+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body class="upd-page">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="gridlines" aria-hidden="true"></div>
+<header class="hud">
+  <div class="hud-in">
+    <div class="logo">
+      <svg viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00E5FF"/><stop offset="1" stop-color="#8A6CFF"/></linearGradient></defs><path d="M20 2 36 11v18L20 38 4 29V11z" fill="none" stroke="url(#lg)" stroke-width="2"/><path d="M12 14v8a8 8 0 0 0 16 0v-8" fill="none" stroke="url(#lg)" stroke-width="2.4" stroke-linecap="round"/><circle cx="20" cy="22" r="2.4" fill="#00E5FF"/></svg>
+      <div><b>UHE · NY OPEN</b><span>Upper Hand Edge command</span></div>
+    </div>
+    <div class="clocks"><span><small>LDN</small><b id="clkUK">--:--</b></span><span><small>NYC</small><b id="clkNY">--:--</b></span></div>
+    <div class="spacer"></div>
+    <div class="live-stack">
+      <span class="live" id="liveChip" role="status"><i></i><span>LOCKED</span></span>
+      <a class="aio" href="https://aione.london" target="_blank" rel="noopener" aria-label="Created by AIO, aione.london">
+        <span class="aio-by">Created by</span>
+        <span class="aio-mark"><img src="/aio-logo.png" alt="AIO" onerror="this.remove()"><b>AIO</b></span>
+      </a>
+    </div>
+  </div>
+  <nav class="jump" aria-label="Sections"><a href="/#edges">Top edges</a><a href="/#live-chart">Live chart</a><a href="/#matrix-sec">Markets</a><a href="/#stocks">Stocks</a><a class="nav-strat" href="/strategy">Strategy</a><a href="/#brief-sec">Brief</a><a href="/#lab">Edge lab</a><a href="/#flow">Positioning &amp; flow</a><a href="/#calendar">Calendar</a><a href="/#journal">Journal</a><a href="/#model">Model</a><a class="nav-earth" href="/earth">Earth View</a><a class="nav-update" href="/update" aria-current="page">Update</a></nav>
+</header>
+
+<main class="shell">
+  <section class="earth-head upd-head">
+    <div><div class="eyebrow">Ask Claude · push to GitHub · run the data engine</div><h2>Update</h2>
+      <p>Tell Claude what to change on the site. Check the edits, push them live, then refresh the data if the change needs it.</p></div>
+    <div class="ctrls" id="chips"></div>
+  </section>
+
+  <section class="glass pad upd-lock" id="lock" aria-label="Unlock"><div class="empty">Checking settings…</div></section>
+
+  <div class="upd-grid" id="app" hidden>
+    <section class="glass pad upd-card upd-ask" id="ask" aria-labelledby="askTitle">
+      <div class="upd-step"><span class="upd-n">1</span><div class="upd-step-t"><div class="eyebrow">Step 1</div><h3 id="askTitle">Ask Claude</h3></div>
+        <label class="sr" for="model">Claude model</label><select class="sel" id="model"></select></div>
+      <div class="upd-feed" id="feed"></div>
+      <form class="upd-form" id="askForm" autocomplete="off">
+        <label class="sr" for="prompt">What should Claude change?</label>
+        <textarea class="inp upd-prompt" id="prompt" rows="3" placeholder="e.g. Make the countdown ring turn amber in the last 10 minutes before the New York open"></textarea>
+        <div class="upd-ideas" id="ideas"></div>
+        <div class="upd-form-bar"><span class="upd-cost" id="cost"></span><button class="btn sm ghost" type="button" id="newChat" title="Clear the conversation (staged changes stay)">New chat</button><button class="btn sm danger" type="button" id="stop" hidden>Stop</button><button class="btn prime" type="submit" id="send">Send to Claude</button></div>
+      </form>
+    </section>
+
+    <div class="upd-side">
+      <section class="glass pad upd-card" id="review" aria-labelledby="revTitle">
+        <div class="upd-step"><span class="upd-n">2</span><div class="upd-step-t"><div class="eyebrow">Step 2</div><h3 id="revTitle">Review &amp; push</h3></div><span class="pill neutral" id="revCount">0 files</span></div>
+        <div id="changes"></div>
+        <div id="pushBox"></div>
+        <div id="pushResult"></div>
+        <details class="upd-more" id="commitsBox"><summary>Recent changes on GitHub</summary><div id="commits"><div class="empty">Loading…</div></div></details>
+      </section>
+
+      <section class="glass pad upd-card" id="engine" aria-labelledby="engTitle">
+        <div class="upd-step"><span class="upd-n">3</span><div class="upd-step-t"><div class="eyebrow">Step 3</div><h3 id="engTitle">Run the data engine</h3></div></div>
+        <p class="upd-sub">Refreshes the data the site reads (quotes, scans, options, news, patterns). It runs on GitHub Actions. Run it after Claude changes how data is built, or any time you want fresh numbers.</p>
+        <div class="upd-eng-ctl">
+          <div class="tabs" role="group" aria-label="What to refresh" id="engMode"><button type="button" data-m="due" aria-pressed="true">What's due</button><button type="button" data-m="all" aria-pressed="false">Everything</button><button type="button" data-m="pick" aria-pressed="false">Choose…</button></div>
+          <button class="btn prime" type="button" id="engRun">Run data engine</button>
+        </div>
+        <div class="upd-jobs" id="engJobs" hidden></div>
+        <div id="engNow"></div>
+        <div id="engLog"></div>
+        <details class="upd-more" id="engRunsBox"><summary>Recent runs</summary><div id="engRuns"><div class="empty">Loading…</div></div></details>
+      </section>
+    </div>
+  </div>
+  <p class="note upd-foot">Claude works on a copy of the code: nothing changes on GitHub or the live site until you press Push. Your PIN stays in this tab. Settings live in Vercel → Settings → Environment Variables.</p>
+</main>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="/update.js"></script>
+</body>
+</html>

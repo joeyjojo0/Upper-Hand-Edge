@@ -18,6 +18,7 @@ It runs as a small website on Vercel: static front end in `public/`, serverless 
 | **NY open brief** | Auto brief built from the live model; optionally written by Claude | 1 min / 30 min |
 | Edge lab, positioning & flow, calendar | First-hour behaviour over ~55 sessions, CFTC speculator positioning, FINRA off-exchange short share (DIX-style), this week's high/medium impact events | 2 min / 3 h / 15 min |
 | Journal & model | R-based trade journal with equity curve, adjustable model weights. Saved in your browser, with export and import | instant |
+| **Update** (`/update`) | Ask Claude to change the site, review the diff, push it to GitHub (live about a minute later, with undo) and run the data engine on demand. PIN-locked. See "Update page" below | on demand |
 
 ## Data and latency
 
@@ -65,6 +66,7 @@ Or from a terminal: `npx vercel --prod`.
 | `/api/brief` | Claude brief (if `ANTHROPIC_API_KEY` is set) | 30 min |
 | `/api/health` | Connectivity check | none |
 | `/api/trade` | IC Markets (cTrader) bridge. `GET` shows what's configured; `POST {action, pin}` with `account`, `accounts`, `find`, `bars` (live candles for pattern scans), `order`, `positions`, `close` | none |
+| `/api/update` | Update page. `GET` shows what's configured and the commit the live site runs; `POST {action, pin}` with `check`, `step` (one Claude round, streamed as NDJSON), `push`, `undo`, `deploy`, `commits`, `engine`, `runs`, `run`, `log` | none |
 
 ## Local development
 
@@ -74,7 +76,7 @@ npm run dev        # real data (needs internet access to the sources above)
 npm test           # server data-layer tests with a fake network
 ```
 
-UI smoke tests (Playwright for Python): start `MOCK=1 PORT=3100 node dev/server.mjs`, then `python3 dev/ui/shots.py` and `python3 dev/ui/strategy.py` (mock trading PIN: `demo-pin-123`).
+UI smoke tests (Playwright for Python): start `MOCK=1 PORT=3100 node dev/server.mjs`, then `python3 dev/ui/shots.py`, `python3 dev/ui/strategy.py` and `python3 dev/ui/update.py` (mock trading and update PIN: `demo-pin-123`).
 
 ## Project layout
 
@@ -89,6 +91,8 @@ public/strategy.*  Strategy page; strategy-model.js holds the checklist rules (s
 public/patterns.js chart-pattern finder (shared by the engine, the page's live scan and the tests)
 api/_lib/patterns-data.js  multi-timeframe candles + patterns for the engine's shortlist
 api/_lib/ctrader.js  cTrader Open API client (JSON over WebSocket) used by api/trade.js
+api/update.js      Update page backend; api/_lib/agent.js is Claude's editing loop, api/_lib/github.js the GitHub side
+public/update.*    Update page; public/diff.js draws the line diffs
 dev/               local server, mock API, fixtures, tests
 ```
 
@@ -169,3 +173,26 @@ Only **cTrader** accounts have an API that the site can use. MT4/MT5 accounts ca
 6. Once demo orders, stops and targets look right in cTrader, switch `CTRADER_ENV` to `live`, set `CTRADER_ACCOUNT_ID` to the live account and redeploy. Live orders need an extra "real money" tick on every ticket.
 
 Safety rules built into `/api/trade`: every action needs the PIN (wrong PINs are slowed down); market buy orders only; a stop loss is always attached; one order is capped at `TRADE_MAX_USD`; at most 6 orders a minute; requests from other websites are refused; secrets never leave Vercel. The access token expires after about 30 days: get a new one from the Playground and update `CTRADER_ACCESS_TOKEN`.
+
+## Update page (`/update`)
+
+Type what you want changed and Claude edits the code, then you push it live and refresh the data, all from the site:
+
+1. **Ask Claude.** Claude reads and edits a copy of the repo (it can list, read, search, edit, create and delete files; JS, JSON, CSS and HTML are syntax-checked after every edit). You watch each step as it happens, and it finishes with a plain-English summary. Follow-ups build on the changes so far. Choose Sonnet 5.5 (fast) or Opus 5.5 (strongest); the page shows the running cost.
+2. **Review & push.** Every changed file with a line-by-line diff; discard any file. **Push to GitHub** commits to `main` (tap twice to confirm), Vercel deploys it, and the page follows the deploy until the new version is live. **Undo this push**, or Undo on any recent commit, makes a new commit that puts the old files back.
+3. **Run the data engine.** Starts the GitHub Actions data engine now (what's due, everything, or chosen jobs), shows each step live and then the engine's own log. GitHub runs the 10-minute schedule on a best-effort basis, often much less often, so use this before the open for fresh numbers.
+
+Nothing reaches GitHub until you press Push. Staged changes and the conversation stay in your browser until you push or discard them (a request that's still running stops if you close the page; what Claude changed so far is kept).
+
+**Setup** (Vercel → Settings → Environment Variables, then redeploy):
+
+| Variable | Value |
+| --- | --- |
+| `UPDATE_PIN` | A passphrase of 8+ characters to unlock the page (falls back to `TRADE_PIN` if not set) |
+| `ANTHROPIC_API_KEY` | An Anthropic API key (the same one the Claude brief uses) |
+| `GITHUB_TOKEN` | A fine-grained token for this repo only: Contents and Actions read & write, Workflows read & write (only needed if Claude edits `.github/workflows`), Commit statuses read. The page's setup panel has a link that pre-fills these |
+| `UPDATE_MODEL` | Optional default model (default `claude-sonnet-5-5`) |
+| `GITHUB_REPO`, `GITHUB_BRANCH`, `ENGINE_WORKFLOW` | Optional; default to this repo, `main` and `data.yml` |
+
+Safety: every action needs the PIN (wrong PINs are slowed down and 30 in 15 minutes lock the page for a while), requests from other websites are refused, secrets stay in Vercel, Claude can't write `.env` files or touch `.git`, and pushes refuse to overwrite a file someone changed on GitHub in the meantime unless you choose "Push anyway". Each Claude request runs for up to 5 minutes (`maxDuration` 300, fluid compute) and the page carries on automatically if a round needs longer.
+
