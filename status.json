@@ -1,0 +1,1 @@
+{"asOf":"2026-11-28T14:03:52.174Z","log":["quotes: ok in 0.3s","basis: ok in 1.2s","markets: ok in 2.5s","scan-hist: ok in 218.5s","scan: ok in 2.3s","options: ok in 98.6s","fund: ok in 98.8s","pulse: ok in 0.8s","news: ok in 44.6s","patterns: ok in 89.2s (94 stocks, 1m–30m, 1h–1w)","flow: ok in 0.6s","calendar: ok in 0.1s"]}
